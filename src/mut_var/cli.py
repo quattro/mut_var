@@ -115,7 +115,7 @@ def penalized_objective(
             - baseline_param.pi[:-1] * param.pi[1:]
         )
     )
-    rel_point_mass_dist = nn.relu(param.pi[0] / baseline_param.pi[0] - 1)
+    rel_point_mass_dist = nn.relu( baseline_param.pi[0] - param.pi[0] )
 
     penalty_term = penalty * (p1 + rel_point_mass_dist)
 
@@ -266,25 +266,27 @@ def fit_baseline_mixture(
             idxs = rdm.choice(skey, nobs, shape=(batch_size,), replace=False)
             _, direction = vg_f(params, beta_hat[idxs], s2[idxs], alpha)
             direction = jax.tree.map(lambda x: (nobs / batch_size) * x, direction)
-            _params = _reimannian_step(params, direction, step_size)
-            nloglike = obj(_params, beta_hat[idxs], s2[idxs], alpha)
+            params = _reimannian_step(params, direction, step_size)
+            nloglike = obj(params, beta_hat[idxs], s2[idxs], alpha)
+            diff = nloglike - ologlike
+            rel_diff = diff / ologlike
+            ologlike = nloglike
         else:
             _, direction = vg_f(params, beta_hat, s2, alpha)
-            _params = _reimannian_step(params, direction, step_size)
-            nloglike = obj(_params, beta_hat, s2, alpha)
-        """
-        for inner in range(20):
-            nloglike = obj(_params, beta_hat, s2, alpha)
-            diff = nloglike - ologlike
-            if diff < 0 or jnp.isnan(nloglike) or jnp.isinf(nloglike):
-                step_size *= 0.5
-            else:
-                break
-        if inner < 19:  # 19 is 20 steps
-            params = _params
-            ologlike = nloglike
-        """
-        print(f"LL[{epoch}] = {nloglike} @ step-size = {step_size}")
+            for inner in range(20):
+                _params = _reimannian_step(params, direction, step_size)
+                nloglike = obj(_params, beta_hat, s2, alpha)
+                diff = nloglike - ologlike
+                rel_diff = diff / ologlike
+                if diff < 0 or jnp.isnan(nloglike) or jnp.isinf(nloglike):
+                    step_size *= 0.5
+                else:
+                    break
+            print(f"\tNumber of steps: {inner}")
+            if inner < 19:  # 19 is 20 steps
+                params = _params
+                ologlike = nloglike
+        print(f"LL[{epoch}] = {ologlike} @ step-size = {step_size:.3e} | RelDiff = {rel_diff:.3e}")
         #if jnp.fabs(diff) < tol or jnp.isnan(diff) or inner == 19:
         #    break
 
@@ -351,6 +353,7 @@ def _main(args):
     argp.add_argument("-k", "--num-clusters", type=int, default=30)
     argp.add_argument("-m", "--max-iter", type=int, default=100)
     argp.add_argument("-r", "--step-size", type=float, default=0.01)
+    argp.add_argument("-b", "--batch-size", type=int, default=10_000)
     argp.add_argument("-s", "--seed", type=int, default=0)
     argp.add_argument("-f", "--filter", type=float, default=1e-8)
     argp.add_argument("--lowest", type=float, default=1e-5)
@@ -377,6 +380,7 @@ def _main(args):
         args.num_clusters,
         0.00,
         baseline_key,
+        batch_size=args.batch_size,
         max_iter=args.max_iter,
         step_size=args.step_size,
         af_name=args.af_col,

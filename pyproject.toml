@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
@@ -12,27 +12,41 @@ license = "MIT"
 keywords = []
 authors = [
   { name = "Nicholas Mancuso", email = "nmancuso@usc.edu" },
+  { name = "Arun Durvasula", email = "arun.durvasula@med.usc.edu" },
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = []
+dependencies = [
+    "jax",
+    "numpy",
+    "polars",
+    "jaxtyping"
+]
+
+[project.scripts]
+mutvar = "mut_var.cli:run_cli"
 
 [project.urls]
-Documentation = "https://github.com/Nicholas Mancuso/mut-var#readme"
-Issues = "https://github.com/Nicholas Mancuso/mut-var/issues"
-Source = "https://github.com/Nicholas Mancuso/mut-var"
+Documentation = "https://github.com/quattro/mut-var#readme"
+Issues = "https://github.com/quattro/mut-var/issues"
+Source = "https://github.com/quattro/mut-var"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.version]
-path = "src/mut_var/__about__.py"
+source = "vcs"
+raw-options = { search_parent_directories = true }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/mut_var/_version.py"
 
 [tool.hatch.envs.types]
 extra-dependencies = [
@@ -59,3 +73,36 @@ exclude_lines = [
   "if __name__ == .__main__.:",
   "if TYPE_CHECKING:",
 ]
+
+
+[tool.ruff]
+target-version = "py37"
+line-length = 120
+
+[tool.ruff.lint]
+fixable = ["I001", "F401"]
+select = ["E", "F", "I001"]
+ignore = [
+    # Allow non-abstract empty methods in abstract base classes
+    "B027",
+    # Allow boolean positional values in function calls, like `dict.get(... True)`
+    "FBT003",
+    # Ignore checks for possible passwords
+    "S105", "S106", "S107",
+    # Ignore complexity
+    "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+]
+ignore-init-module-imports = true
+
+[tool.ruff.lint.isort]
+known-first-party = ["mut_var"]
+combine-as-imports = true
+lines-between-types = 1
+known-local-folder = ["src"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+extra-standard-library = ["typing_extensions"]
+order-by-type = false
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use magic values, assertions, and relative imports
+"tests/**/*" = ["PLR2004", "S101", "TID252"]
