@@ -34,3 +34,6 @@ jobs:
 
       - name: Benchmark Contract Gate
         run: python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json
+
+      - name: Release Gate Contract Check
+        run: python scripts/check_release_gate.py --report benchmarks/results/latest.json

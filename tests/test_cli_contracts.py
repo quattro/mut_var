@@ -1,10 +1,13 @@
+import json
 import sys
 
 from io import StringIO
+from pathlib import Path
 
 import mut_var.cli as cli
 
 from mut_var.contracts import RESULTS, Solution
+from scripts.check_release_gate import evaluate_release_gate
 from tests.helpers import assert_no_traceback, fixture_path
 
 
@@ -133,3 +136,33 @@ def test_cli_maps_max_steps_status_to_zero_exit(monkeypatch, tmp_path):
     assert code == 0
     assert stdout.getvalue() == ""
     assert_no_traceback(stderr.getvalue())
+
+
+def test_release_gate_fails_when_report_is_missing(tmp_path):
+    report_path = tmp_path / "missing.json"
+    passed, errors, _ = evaluate_release_gate(report_path)
+
+    assert not passed
+    assert any("not found" in err for err in errors)
+
+
+def test_release_gate_passes_with_valid_report(tmp_path):
+    report_path = tmp_path / "report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "comparison": {
+                    "improvement_percent": 25.0,
+                    "threshold_percent": 20.0,
+                    "passed": True,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    passed, errors, payload = evaluate_release_gate(Path(report_path))
+
+    assert passed
+    assert errors == []
+    assert payload is not None
