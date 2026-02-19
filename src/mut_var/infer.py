@@ -203,12 +203,13 @@ def run_inference_pipeline(
     beta_hat = jnp.asarray(arrays.beta_hat)
     s2 = jnp.asarray(arrays.s2)
 
-    workflow_log.info("inference pipeline: fitting baseline model")
+    baseline_config = inference_config.to_baseline_config()
+    workflow_log.info(f"inference pipeline: fitting baseline model with config {baseline_config}")
     baseline_solution = fit_baseline(
         beta_hat=beta_hat,
         s2=s2,
         key=rdm.PRNGKey(seed),
-        config=inference_config.to_baseline_config(),
+        config=baseline_config,
         verbose_callback=_solver_debug_callback(workflow_log, "baseline"),
     )
     workflow_log.info("inference pipeline: baseline fit completed with result '%s'", RESULTS[baseline_solution.result])
