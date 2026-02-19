@@ -6,6 +6,7 @@ from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 from .contracts import RESULTS, Solution
 from .curve import run_curve_workflow
 from .infer import InferenceArrays, InferenceConfig, run_inference_pipeline
+from .numerics import fit_baseline, fit_curve, fit_refit_grid, run_profiled_inference_pipeline
 
 try:
     # Change here if project is renamed and does not equal the package name
@@ -22,6 +23,10 @@ __all__ = [
     "RESULTS",
     "Solution",
     "__version__",
+    "fit_baseline",
+    "fit_curve",
+    "fit_refit_grid",
     "run_curve_workflow",
     "run_inference_pipeline",
+    "run_profiled_inference_pipeline",
 ]

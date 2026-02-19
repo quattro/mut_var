@@ -1,5 +1,6 @@
 import numpy as np
 
+import mut_var
 import mut_var.cli as cli
 
 from mut_var.adapters.tabular import build_maf_masks, to_inference_arrays
@@ -69,3 +70,11 @@ def test_pipeline_returns_empty_subset_when_masks_select_nothing(sumstats_valid_
     )
 
     assert solution.result == RESULTS.empty_subset
+
+
+def test_package_root_exports_canonical_workflow_entrypoints():
+    assert callable(mut_var.run_inference_pipeline)
+    assert callable(mut_var.run_curve_workflow)
+    assert callable(mut_var.fit_baseline)
+    assert callable(mut_var.fit_refit_grid)
+    assert callable(mut_var.fit_curve)
