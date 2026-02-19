@@ -8,13 +8,9 @@ from typing import Sequence
 
 import jax
 
-from mut_var.contracts import RESULTS
-from mut_var.curve import CurvePipelineError, run_curve_pipeline
-from mut_var.infer import InferenceConfig, InferencePipelineError, run_inference_pipeline
-from mut_var.io import (
-    MutVarInputError,
-    read_sumstats,
-)
+from mut_var.curve import run_curve_pipeline
+from mut_var.infer import InferenceConfig, run_inference_pipeline
+from mut_var.io import read_sumstats
 
 jax.config.update("jax_enable_x64", True)
 
@@ -68,17 +64,9 @@ def build_parser() -> ap.ArgumentParser:
     return parser
 
 
-def _solution_exit_code(result: RESULTS) -> int:
-    if result in (RESULTS.successful, RESULTS.max_steps_reached):
-        return 0
-    if result in (RESULTS.invalid_input, RESULTS.empty_subset):
-        return 2
-    return 1
-
-
 def run_infer_pipeline(args: ap.Namespace) -> int:
-    df = read_sumstats(args.sumstats)
     try:
+        df = read_sumstats(args.sumstats)
         result_df = run_inference_pipeline(
             df,
             af_col=args.af_col,
@@ -97,9 +85,12 @@ def run_infer_pipeline(args: ap.Namespace) -> int:
                 penalty=args.penalty,
             ),
         )
-    except InferencePipelineError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         print(str(exc), file=sys.stderr)
-        return _solution_exit_code(exc.result)
+        return 2
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     result_df.write_csv(args.output, separator="\t")
     return 0
@@ -108,9 +99,12 @@ def run_infer_pipeline(args: ap.Namespace) -> int:
 def run_curve_cli_pipeline(args: ap.Namespace) -> int:
     try:
         coef_df = run_curve_pipeline(args.data, generate_plots=not args.fit_only)
-    except CurvePipelineError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         print(str(exc), file=sys.stderr)
-        return _solution_exit_code(exc.result)
+        return 2
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     coef_df.write_csv(args.output, separator="\t")
     return 0
@@ -121,7 +115,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     try:
         args = build_parser().parse_args(raw_args)
         return args.func(args)
-    except MutVarInputError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
     except SystemExit as exc:

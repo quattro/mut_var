@@ -7,7 +7,7 @@ import mut_var.cli as cli
 
 from mut_var.adapters.tabular import build_maf_masks, to_inference_arrays
 from mut_var.contracts import RESULTS, Solution
-from mut_var.infer import InferencePipelineError, run_inference_pipeline as run_inference_dataframe_pipeline
+from mut_var.infer import run_inference_pipeline as run_inference_dataframe_pipeline
 from mut_var.numerics.pipeline import (
     InferenceArrays,
     InferenceConfig,
@@ -66,7 +66,7 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
         ),
     )
 
-    with pytest.raises(InferencePipelineError) as err:
+    with pytest.raises(RuntimeError) as err:
         run_inference_dataframe_pipeline(
             sumstats_valid_df,
             seed=0,
@@ -76,7 +76,6 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
             config=InferenceConfig(num_clusters=3, max_iter=2, batch_size=8, step_size=0.5),
         )
 
-    assert err.value.result == RESULTS.nonfinite_objective
     assert "non-finite" in str(err.value)
 
 

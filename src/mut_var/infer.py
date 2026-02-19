@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # pattern: Imperative Shell
-from typing import Any, Mapping
+from typing import Mapping
 
 import jax.numpy as jnp
 import polars as pl
@@ -16,16 +16,6 @@ from mut_var.numerics.pipeline import (
 )
 
 
-class InferencePipelineError(RuntimeError):
-    result: RESULTS
-    stats: dict[str, Any] | None
-
-    def __init__(self, result: RESULTS, reason: str, *, stats: dict[str, Any] | None = None):
-        super().__init__(reason)
-        self.result = result
-        self.stats = stats
-
-
 def _reason_from_solution(solution: Solution) -> str:
     if isinstance(solution.stats, dict):
         reason = solution.stats.get("reason")
@@ -36,18 +26,13 @@ def _reason_from_solution(solution: Solution) -> str:
 
 def _payload_from_solution(solution: Solution) -> Mapping[str, object]:
     if solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
-        raise InferencePipelineError(
-            result=solution.result,
-            reason=_reason_from_solution(solution),
-            stats=solution.stats if isinstance(solution.stats, dict) else None,
-        )
+        reason = _reason_from_solution(solution)
+        if solution.result in (RESULTS.invalid_input, RESULTS.empty_subset):
+            raise ValueError(reason)
+        raise RuntimeError(reason)
 
     if not isinstance(solution.value, Mapping):
-        raise InferencePipelineError(
-            result=RESULTS.invalid_input,
-            reason="inference payload must be a mapping.",
-            stats=solution.stats if isinstance(solution.stats, dict) else None,
-        )
+        raise ValueError("inference payload must be a mapping.")
 
     return solution.value
 
@@ -93,6 +78,5 @@ def run_inference_pipeline(
 __all__ = [
     "InferenceArrays",
     "InferenceConfig",
-    "InferencePipelineError",
     "run_inference_pipeline",
 ]

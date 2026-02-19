@@ -2,11 +2,7 @@ import polars as pl
 import pytest
 
 from mut_var.io import (
-    MAFGridError,
-    MissingColumnsError,
-    NumericColumnsError,
     read_sumstats,
-    SumstatsDomainError,
     validate_maf_grid,
     validate_numeric_columns,
     validate_required_columns,
@@ -23,7 +19,7 @@ def test_read_sumstats_reads_tab_delimited_file(sumstats_valid_path):
 def test_validate_required_columns_rejects_missing_columns():
     df = pl.DataFrame({"effect_allele_frequency": [0.1], "beta": [0.0]})
 
-    with pytest.raises(MissingColumnsError, match="Missing required column"):
+    with pytest.raises(ValueError, match="Missing required column"):
         validate_required_columns(df, "effect_allele_frequency", "beta", "standard_error")
 
 
@@ -37,12 +33,12 @@ def test_validate_numeric_columns_rejects_non_numeric_values():
         strict=False,
     )
 
-    with pytest.raises(NumericColumnsError, match="must contain numeric values"):
+    with pytest.raises(ValueError, match="must contain numeric values"):
         validate_numeric_columns(df, "effect_allele_frequency", "beta", "standard_error")
 
 
 def test_validate_numeric_columns_rejects_invalid_fixture(sumstats_invalid_df):
-    with pytest.raises(NumericColumnsError):
+    with pytest.raises(ValueError):
         validate_numeric_columns(sumstats_invalid_df, "effect_allele_frequency", "beta", "standard_error")
 
 
@@ -74,7 +70,7 @@ def test_assert_no_traceback_helper():
     ],
 )
 def test_validate_sumstats_domain_rejects_invalid_af_and_se(df, error):
-    with pytest.raises(SumstatsDomainError, match=error):
+    with pytest.raises(ValueError, match=error):
         validate_sumstats_domain(df, "effect_allele_frequency", "standard_error")
 
 
@@ -88,7 +84,7 @@ def test_validate_sumstats_domain_rejects_invalid_af_and_se(df, error):
     ],
 )
 def test_validate_maf_grid_rejects_invalid_configs(lowest, highest, num_breaks):
-    with pytest.raises(MAFGridError):
+    with pytest.raises(ValueError):
         validate_maf_grid(lowest, highest, num_breaks)
 
 

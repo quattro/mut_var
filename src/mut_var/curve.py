@@ -2,7 +2,6 @@ from __future__ import annotations
 
 # pattern: Imperative Shell
 from pathlib import Path
-from typing import Any
 
 import jax.numpy as jnp
 import polars as pl
@@ -15,16 +14,6 @@ def _to_scalar_var(variance) -> float:
     if isinstance(variance, tuple):
         return float(variance[0])
     return float(variance)
-
-
-class CurvePipelineError(RuntimeError):
-    result: RESULTS
-    stats: dict[str, Any] | None
-
-    def __init__(self, result: RESULTS, reason: str, *, stats: dict[str, Any] | None = None):
-        super().__init__(reason)
-        self.result = result
-        self.stats = stats
 
 
 def _coefficients_dataframe(coeff_rows: list[dict[str, float]]) -> pl.DataFrame:
@@ -42,21 +31,18 @@ def _coefficients_dataframe(coeff_rows: list[dict[str, float]]) -> pl.DataFrame:
 
 
 def run_curve_pipeline(input_path: str, *, generate_plots: bool) -> pl.DataFrame:
+    if not Path(input_path).exists():
+        raise FileNotFoundError(f"input file does not exist: {input_path}")
+
     try:
         df = pl.read_csv(input_path, separator="\t")
     except Exception as exc:
-        raise CurvePipelineError(
-            result=RESULTS.invalid_input,
-            reason=f"could not read curve input file: {exc}",
-        ) from exc
+        raise ValueError(f"could not read curve input file: {exc}") from exc
 
     required = {"maf", "value", "var0"}
     missing = required.difference(df.columns)
     if missing:
-        raise CurvePipelineError(
-            result=RESULTS.invalid_input,
-            reason=f"missing required curve columns: {', '.join(sorted(missing))}",
-        )
+        raise ValueError(f"missing required curve columns: {', '.join(sorted(missing))}")
 
     coeff_rows: list[dict[str, float]] = []
 
@@ -73,11 +59,9 @@ def run_curve_pipeline(input_path: str, *, generate_plots: bool) -> pl.DataFrame
             reason = details.get("reason")
             if not isinstance(reason, str) or not reason.strip():
                 reason = f"curve fit failed with status '{RESULTS[fit_solution.result]}' at var0={var0}."
-            raise CurvePipelineError(
-                result=fit_solution.result,
-                reason=reason,
-                stats=details,
-            )
+            if fit_solution.result in (RESULTS.invalid_input, RESULTS.empty_subset):
+                raise ValueError(reason)
+            raise RuntimeError(reason)
 
         coef = fit_solution.value
         coeff_rows.append(

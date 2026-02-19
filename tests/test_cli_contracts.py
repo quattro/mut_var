@@ -9,8 +9,6 @@ import polars as pl
 import mut_var.cli as cli
 import mut_var.infer as infer_module
 
-from mut_var.contracts import RESULTS
-from mut_var.infer import InferencePipelineError
 from scripts.check_release_gate import evaluate_release_gate
 from tests.helpers import assert_no_traceback, fixture_path
 
@@ -160,10 +158,7 @@ def test_cli_maps_inference_pipeline_error_status_to_exit(monkeypatch, tmp_path)
     valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
 
     def _raise_error(*_args, **_kwargs):
-        raise InferencePipelineError(
-            result=RESULTS.nonfinite_objective,
-            reason="objective became non-finite",
-        )
+        raise RuntimeError("objective became non-finite")
 
     monkeypatch.setattr(cli, "run_inference_pipeline", _raise_error)
 
