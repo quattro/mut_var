@@ -3,6 +3,7 @@ from __future__ import annotations
 # pattern: Functional Core
 from typing import Any, NamedTuple
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as rdm
@@ -226,7 +227,7 @@ def fit_baseline(
         ** 2,
     )
 
-    obj = jax.jit(baseline_objective)
+    obj = eqx.filter_jit(baseline_objective)
     nobs = len(beta_hat_arr)
     return _fit_baseline_optimistix(
         init=params,

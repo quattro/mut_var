@@ -4,6 +4,7 @@ from __future__ import annotations
 from time import perf_counter
 from typing import Any, NamedTuple
 
+import equinox as eqx
 import jax
 import jax.nn as nn
 import jax.numpy as jnp
@@ -200,7 +201,7 @@ def fit_refit_grid(
             state=None,
         )
 
-    obj = jax.jit(penalized_objective)
+    obj = eqx.filter_jit(penalized_objective)
 
     models = [init]
     any_max_steps = False
