@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from benchmarks.infer_runtime import RuntimeBenchmarkConfig, build_report, generate_sumstats
+from benchmarks.infer_runtime import build_report, generate_sumstats, RuntimeBenchmarkConfig
 from mut_var.adapters.array_cache import ArrayConversionCache
 from mut_var.adapters.tabular import build_maf_masks, to_inference_arrays, to_inference_arrays_cached
 from mut_var.contracts import RESULTS, Solution

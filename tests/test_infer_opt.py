@@ -5,6 +5,7 @@ import polars as pl
 import mut_var.cli as cli
 
 from mut_var.contracts import RESULTS, Solution
+from mut_var.numerics import baseline, refit
 from mut_var.numerics.baseline import BaselineConfig, fit_baseline
 
 
@@ -54,3 +55,19 @@ def test_fit_baseline_rejects_tabular_objects():
 def test_cli_no_longer_owns_optimizer_internals():
     assert not hasattr(cli, "baseline_objective")
     assert not hasattr(cli, "fit_baseline_mixture")
+
+
+def test_fit_baseline_rejects_nonfinite_inputs():
+    solution = fit_baseline(
+        beta_hat=jnp.array([0.1, jnp.nan]),
+        s2=jnp.array([0.01, 0.02]),
+        key=rdm.PRNGKey(0),
+        config=BaselineConfig(num_clusters=3),
+    )
+
+    assert solution.result == RESULTS.invalid_input
+
+
+def test_algorithm_scope_keeps_original_objective_functions():
+    assert callable(baseline.baseline_objective)
+    assert callable(refit.penalized_objective)

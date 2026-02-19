@@ -1,5 +1,4 @@
 import numpy as np
-import polars as pl
 
 import mut_var.cli as cli
 
@@ -8,18 +7,8 @@ from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics.pipeline import InferenceArrays, InferenceConfig, run_inference_pipeline
 
 
-def _example_sumstats() -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "effect_allele_frequency": [0.10, 0.20, 0.30, 0.40, 0.45, 0.12, 0.22, 0.33],
-            "beta": [0.05, -0.02, 0.01, 0.03, -0.01, 0.02, -0.03, 0.04],
-            "standard_error": [0.05, 0.04, 0.03, 0.04, 0.03, 0.05, 0.04, 0.03],
-        }
-    )
-
-
-def test_run_inference_pipeline_returns_solution_with_status_and_stats():
-    df = _example_sumstats()
+def test_run_inference_pipeline_returns_solution_with_status_and_stats(sumstats_valid_df):
+    df = sumstats_valid_df
     arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
     maf_grid = np.array([1e-3, 5e-3])
     maf_masks = build_maf_masks(arrays.af, maf_grid)
@@ -46,8 +35,8 @@ def test_orchestration_is_separate_from_cli_internals():
     assert not hasattr(cli, "fit_mixture")
 
 
-def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays():
-    df = _example_sumstats()
+def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays(sumstats_valid_df):
+    df = sumstats_valid_df
     arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
     assert not hasattr(arrays.beta_hat, "columns")
 
@@ -64,3 +53,19 @@ def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays():
     )
 
     assert solution.result == RESULTS.invalid_input
+
+
+def test_pipeline_returns_empty_subset_when_masks_select_nothing(sumstats_valid_df):
+    arrays = to_inference_arrays(sumstats_valid_df, "effect_allele_frequency", "beta", "standard_error")
+    maf_grid = np.array([0.49, 0.5])
+    maf_masks = np.zeros((2, len(np.asarray(arrays.af))), dtype=bool)
+
+    solution = run_inference_pipeline(
+        arrays=arrays,
+        maf_grid=maf_grid,
+        maf_masks=maf_masks,
+        seed=0,
+        config=InferenceConfig(num_clusters=3, max_iter=2, batch_size=4),
+    )
+
+    assert solution.result == RESULTS.empty_subset

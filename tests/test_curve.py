@@ -12,7 +12,6 @@ from mut_var.contracts import RESULTS
 from mut_var.curve import run_curve_workflow
 from mut_var.numerics.curve_fit import fit_curve
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "curve_small.tsv"
 
 
