@@ -5,7 +5,7 @@ import argparse as ap
 import logging
 import sys
 
-from typing import Sequence
+from typing import Sequence, TextIO
 
 import jax
 
@@ -83,9 +83,22 @@ def build_parser() -> ap.ArgumentParser:
     return parser
 
 
+def _output_target(output_stream: TextIO) -> str:
+    if output_stream is sys.stdout:
+        return "stdout"
+    name = getattr(output_stream, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name
+    return "stream"
+
+
 def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     try:
+        log.info("infer: loading data from '%s'", args.sumstats)
         df = read_sumstats(args.sumstats)
+        log.info("infer: data loaded (%d rows)", df.height)
+
+        log.info("infer: starting inference pipeline")
         result_df = run_inference_pipeline(
             df,
             af_col=args.af_col,
@@ -103,7 +116,9 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
                 filter_threshold=args.filter,
                 penalty=args.penalty,
             ),
+            log=log,
         )
+        log.info("infer: inference pipeline completed")
     except (ValueError, FileNotFoundError) as exc:
         log.error(str(exc))
         return 2
@@ -111,13 +126,17 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
         log.error(str(exc))
         return 1
 
+    log.info("infer: writing output to '%s'", _output_target(args.output))
     result_df.write_csv(args.output, separator="\t")
+    log.info("infer: finished writing output")
     return 0
 
 
 def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     try:
-        coef_df = run_curve_pipeline(args.data, generate_plots=not args.fit_only)
+        log.info("curve: starting curve pipeline")
+        coef_df = run_curve_pipeline(args.data, generate_plots=not args.fit_only, log=log)
+        log.info("curve: curve pipeline completed")
     except (ValueError, FileNotFoundError) as exc:
         log.error(str(exc))
         return 2
@@ -125,7 +144,9 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
         log.error(str(exc))
         return 1
 
+    log.info("curve: writing output to '%s'", _output_target(args.output))
     coef_df.write_csv(args.output, separator="\t")
+    log.info("curve: finished writing output")
     return 0
 
 
@@ -137,6 +158,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         args = build_parser().parse_args(raw_args)
         if getattr(args, "verbose", False):
             log.setLevel(logging.DEBUG)
+        log.debug("cli: parsed args for command '%s'", getattr(args, "command", "unknown"))
         return args.func(args, log)
     except (ValueError, FileNotFoundError) as exc:
         log.error(str(exc))

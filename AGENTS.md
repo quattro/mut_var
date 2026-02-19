@@ -17,6 +17,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Numerics APIs return `Solution` objects and use `Solution.result` as the canonical status signal.
   - Contracts above numerics do not expose `Solution`; they normalize outputs to tabular/dataframe forms.
   - Orchestration/input errors use built-in exception types (`ValueError`, `FileNotFoundError`, `RuntimeError`) instead of custom error hierarchies.
+  - High-level workflow paths emit step-level progress logs (load/validate/run/prepare/write) through logging, not ad-hoc prints.
   - Curve fit-only mode (`generate_plots=False` / `mutvar curve --fit-only`) performs no plotting side effects.
 - **Expects**:
   - Input data includes required AF/BETA/SE fields (or explicit column overrides).

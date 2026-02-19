@@ -149,7 +149,10 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
 
     assert code == 0
     assert "mu0" in stdout.getvalue()
-    assert_no_traceback(stderr.getvalue())
+    err = stderr.getvalue()
+    assert "infer: loading data" in err
+    assert "infer: writing output" in err
+    assert_no_traceback(err)
 
 
 def test_cli_maps_inference_pipeline_error_status_to_exit(monkeypatch, tmp_path):
@@ -192,7 +195,10 @@ def test_curve_subcommand_runs_fit_only_and_writes_coefficients(monkeypatch):
     out = stdout.getvalue()
     assert "var0" in out
     assert "coef_left" in out
-    assert_no_traceback(stderr.getvalue())
+    err = stderr.getvalue()
+    assert "curve: starting curve pipeline" in err
+    assert "curve: writing output" in err
+    assert_no_traceback(err)
 
 
 def test_release_gate_fails_when_report_is_missing(tmp_path):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 # pattern: Imperative Shell
+import logging
+
 from typing import Mapping
 
 import jax.numpy as jnp
@@ -48,12 +50,18 @@ def run_inference_pipeline(
     num_breaks: int = 10,
     seed: int = 0,
     config: InferenceConfig | None = None,
+    log: logging.Logger | None = None,
 ) -> pl.DataFrame:
+    workflow_log = logging.getLogger(__name__) if log is None else log
+
+    workflow_log.info("inference pipeline: validating input data")
     validate_maf_grid(lowest, highest, num_breaks)
     validate_required_columns(df, af_col, beta_col, se_col)
     validate_numeric_columns(df, af_col, beta_col, se_col)
     validate_sumstats_domain(df, af_col, se_col)
+    workflow_log.info("inference pipeline: input validation complete")
 
+    workflow_log.info("inference pipeline: converting tabular data to arrays")
     arrays = to_inference_arrays(
         df,
         af_col=af_col,
@@ -61,9 +69,12 @@ def run_inference_pipeline(
         se_col=se_col,
     )
 
+    workflow_log.info("inference pipeline: building maf grid and masks")
     maf_grid = jnp.exp(jnp.linspace(jnp.log(lowest), jnp.log(highest), num_breaks))
     maf_masks = build_maf_masks(arrays.af, maf_grid)
     inference_config = config if config is not None else InferenceConfig(num_clusters=30)
+
+    workflow_log.info("inference pipeline: starting numerics")
     solution = _run_numerics_inference_pipeline(
         arrays=arrays,
         maf_grid=maf_grid,
@@ -71,8 +82,13 @@ def run_inference_pipeline(
         seed=seed,
         config=inference_config,
     )
+    workflow_log.info("inference pipeline: numerics completed with result '%s'", RESULTS[solution.result])
+
+    workflow_log.info("inference pipeline: preparing output dataframe")
     payload = _payload_from_solution(solution)
-    return payload_to_long_dataframe(payload)
+    result_df = payload_to_long_dataframe(payload)
+    workflow_log.info("inference pipeline: output dataframe prepared (%d rows)", result_df.height)
+    return result_df
 
 
 __all__ = [
