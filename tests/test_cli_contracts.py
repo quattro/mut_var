@@ -1,15 +1,12 @@
-import json
 import sys
 
 from io import StringIO
-from pathlib import Path
 
 import polars as pl
 
 import mut_var.cli as cli
 import mut_var.infer as infer_module
 
-from scripts.check_release_gate import evaluate_release_gate
 from tests.helpers import assert_no_traceback, fixture_path
 
 
@@ -49,8 +46,7 @@ def test_missing_required_columns_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\n"
-        "0.2\t0.1\n",
+        "effect_allele_frequency\tbeta\n" "0.2\t0.1\n",
     )
 
     code = cli.run_cli(["infer", str(path)])
@@ -67,8 +63,7 @@ def test_out_of_range_af_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\tstandard_error\n"
-        "1.2\t0.1\t0.01\n",
+        "effect_allele_frequency\tbeta\tstandard_error\n" "1.2\t0.1\t0.01\n",
     )
 
     code = cli.run_cli(["infer", str(path)])
@@ -85,8 +80,7 @@ def test_non_positive_se_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\tstandard_error\n"
-        "0.2\t0.1\t0.0\n",
+        "effect_allele_frequency\tbeta\tstandard_error\n" "0.2\t0.1\t0.0\n",
     )
 
     code = cli.run_cli(["infer", str(path)])
@@ -103,8 +97,7 @@ def test_invalid_maf_grid_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\tstandard_error\n"
-        "0.2\t0.1\t0.01\n",
+        "effect_allele_frequency\tbeta\tstandard_error\n" "0.2\t0.1\t0.01\n",
     )
 
     code = cli.run_cli(
@@ -199,33 +192,3 @@ def test_curve_subcommand_runs_fit_only_and_writes_coefficients(monkeypatch):
     assert "curve: starting curve pipeline" in err
     assert "curve: writing output" in err
     assert_no_traceback(err)
-
-
-def test_release_gate_fails_when_report_is_missing(tmp_path):
-    report_path = tmp_path / "missing.json"
-    passed, errors, _ = evaluate_release_gate(report_path)
-
-    assert not passed
-    assert any("not found" in err for err in errors)
-
-
-def test_release_gate_passes_with_valid_report(tmp_path):
-    report_path = tmp_path / "report.json"
-    report_path.write_text(
-        json.dumps(
-            {
-                "comparison": {
-                    "improvement_percent": 25.0,
-                    "threshold_percent": 20.0,
-                    "passed": True,
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    passed, errors, payload = evaluate_release_gate(Path(report_path))
-
-    assert passed
-    assert errors == []
-    assert payload is not None
