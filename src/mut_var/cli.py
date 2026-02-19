@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # pattern: Imperative Shell
 import argparse as ap
+import logging
 import sys
 
 from typing import Sequence
@@ -13,6 +14,24 @@ from mut_var.infer import InferenceConfig, run_inference_pipeline
 from mut_var.io import read_sumstats
 
 jax.config.update("jax_enable_x64", True)
+
+
+def get_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.propagate = False
+    if not logger.handlers:
+        console = logging.StreamHandler(stream=sys.stderr)
+        formatter = logging.Formatter(
+            fmt="[%(asctime)s - %(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+    else:
+        for handler in logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                handler.setStream(sys.stderr)
+    return logger
 
 
 def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser]) -> None:
@@ -64,7 +83,7 @@ def build_parser() -> ap.ArgumentParser:
     return parser
 
 
-def run_infer_pipeline(args: ap.Namespace) -> int:
+def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     try:
         df = read_sumstats(args.sumstats)
         result_df = run_inference_pipeline(
@@ -86,24 +105,24 @@ def run_infer_pipeline(args: ap.Namespace) -> int:
             ),
         )
     except (ValueError, FileNotFoundError) as exc:
-        print(str(exc), file=sys.stderr)
+        log.error(str(exc))
         return 2
     except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
+        log.error(str(exc))
         return 1
 
     result_df.write_csv(args.output, separator="\t")
     return 0
 
 
-def run_curve_cli_pipeline(args: ap.Namespace) -> int:
+def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     try:
         coef_df = run_curve_pipeline(args.data, generate_plots=not args.fit_only)
     except (ValueError, FileNotFoundError) as exc:
-        print(str(exc), file=sys.stderr)
+        log.error(str(exc))
         return 2
     except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
+        log.error(str(exc))
         return 1
 
     coef_df.write_csv(args.output, separator="\t")
@@ -112,11 +131,15 @@ def run_curve_cli_pipeline(args: ap.Namespace) -> int:
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
     raw_args = sys.argv[1:] if argv is None else list(argv)
+    log = get_logger(__name__)
+    log.setLevel(logging.INFO)
     try:
         args = build_parser().parse_args(raw_args)
-        return args.func(args)
+        if getattr(args, "verbose", False):
+            log.setLevel(logging.DEBUG)
+        return args.func(args, log)
     except (ValueError, FileNotFoundError) as exc:
-        print(str(exc), file=sys.stderr)
+        log.error(str(exc))
         return 2
     except SystemExit as exc:
         if isinstance(exc.code, int):
