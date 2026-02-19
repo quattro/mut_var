@@ -2,6 +2,7 @@
 
 [![PyPI - Version](https://img.shields.io/pypi/v/mut-var.svg)](https://pypi.org/project/mut-var)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/mut-var.svg)](https://pypi.org/project/mut-var)
+[![CI](https://github.com/quattro/mut-var/actions/workflows/ci.yml/badge.svg)](https://github.com/quattro/mut-var/actions/workflows/ci.yml)
 
 -----
 
@@ -83,6 +84,20 @@ Interpretation rules:
 - The acceptance gate requires `comparison.improvement_percent >= 20.0`.
 - Benchmark representativeness review is recorded in
   `docs/reviews/benchmark-representativeness.md`.
+
+## CI Gates
+
+Required checks (local and CI must match):
+
+- `ruff check src/mut_var tests`
+- `mypy src/mut_var tests`
+- `pytest -p no:capture`
+- `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
+
+Algorithm-scope constraint:
+
+- Changes must remain targeted to validation/orchestration/performance hardening.
+- Wholesale objective/model redesign is explicitly out of scope and requires separate design review.
 
 ## License
 
