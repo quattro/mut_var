@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
+# pattern: Functional Core
 from typing import Any
 
+import equinox as eqx
+import equinox.internal as eqxi
 
-class RESULTS(str, Enum):
+
+class RESULTS(eqxi.Enumeration):
     successful = "successful"
     invalid_input = "invalid_input"
     empty_subset = "empty_subset"
@@ -13,8 +15,7 @@ class RESULTS(str, Enum):
     max_steps_reached = "max_steps_reached"
 
 
-@dataclass(frozen=True, slots=True)
-class Solution:
+class Solution(eqx.Module):
     value: Any
     result: RESULTS
     stats: dict[str, Any] | None = None
@@ -22,4 +23,4 @@ class Solution:
 
     @property
     def ok(self) -> bool:
-        return self.result == RESULTS.successful
+        return bool(self.result == RESULTS.successful)

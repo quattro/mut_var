@@ -1,32 +1,26 @@
 from __future__ import annotations
 
+# pattern: Imperative Shell
 import argparse as ap
 import sys
 
 from typing import Sequence
 
 import jax
-import jax.numpy as jnp
-import polars as pl
 
-from mut_var.adapters.tabular import build_maf_masks, payload_to_long_dataframe, to_inference_arrays
 from mut_var.contracts import RESULTS
-from mut_var.curve import run_curve_workflow
+from mut_var.curve import CurvePipelineError, run_curve_pipeline
+from mut_var.infer import InferenceConfig, InferencePipelineError, run_inference_pipeline
 from mut_var.io import (
     MutVarInputError,
     read_sumstats,
-    validate_maf_grid,
-    validate_numeric_columns,
-    validate_required_columns,
-    validate_sumstats_domain,
 )
-from mut_var.numerics.pipeline import InferenceConfig, run_inference_pipeline
 
 jax.config.update("jax_enable_x64", True)
 
 
 def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser]) -> None:
-    infer = subparsers.add_parser("infer", help="Run inference workflow.")
+    infer = subparsers.add_parser("infer", help="Run inference pipeline.")
     io_group = infer.add_argument_group("Input/Output")
     io_group.add_argument("sumstats")
     io_group.add_argument("-o", "--output", type=ap.FileType("w"), default=sys.stdout)
@@ -52,18 +46,18 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     grid_group.add_argument("--num_breaks", type=int, default=10)
 
     infer.add_argument("-v", "--verbose", action="store_true", default=False)
-    infer.set_defaults(func=run_infer_workflow)
+    infer.set_defaults(func=run_infer_pipeline)
 
 
 def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser]) -> None:
-    curve = subparsers.add_parser("curve", help="Run curve fitting and optional plotting.")
+    curve = subparsers.add_parser("curve", help="Run curve fitting pipeline and optional plotting.")
     io_group = curve.add_argument_group("Input/Output")
     io_group.add_argument("data")
     io_group.add_argument("-o", "--output", type=ap.FileType("w"), default=sys.stdout)
 
     curve_group = curve.add_argument_group("Curve Options")
     curve_group.add_argument("--fit-only", action="store_true", default=False)
-    curve.set_defaults(func=run_curve_cli_workflow)
+    curve.set_defaults(func=run_curve_cli_pipeline)
 
 
 def build_parser() -> ap.ArgumentParser:
@@ -82,64 +76,42 @@ def _solution_exit_code(result: RESULTS) -> int:
     return 1
 
 
-def run_infer_workflow(args: ap.Namespace) -> int:
-    validate_maf_grid(args.lowest, args.highest, args.num_breaks)
-
+def run_infer_pipeline(args: ap.Namespace) -> int:
     df = read_sumstats(args.sumstats)
-    validate_required_columns(df, args.af_col, args.beta_col, args.se_col)
-    validate_numeric_columns(df, args.af_col, args.beta_col, args.se_col)
-    validate_sumstats_domain(df, args.af_col, args.se_col)
+    try:
+        result_df = run_inference_pipeline(
+            df,
+            af_col=args.af_col,
+            beta_col=args.beta_col,
+            se_col=args.se_col,
+            lowest=args.lowest,
+            highest=args.highest,
+            num_breaks=args.num_breaks,
+            seed=args.seed,
+            config=InferenceConfig(
+                num_clusters=args.num_clusters,
+                batch_size=args.batch_size,
+                max_iter=args.max_iter,
+                step_size=args.step_size,
+                filter_threshold=args.filter,
+                penalty=args.penalty,
+            ),
+        )
+    except InferencePipelineError as exc:
+        print(str(exc), file=sys.stderr)
+        return _solution_exit_code(exc.result)
 
-    arrays = to_inference_arrays(
-        df,
-        af_col=args.af_col,
-        beta_col=args.beta_col,
-        se_col=args.se_col,
-    )
-    maf_grid = jnp.exp(jnp.linspace(jnp.log(args.lowest), jnp.log(args.highest), args.num_breaks))
-    maf_masks = build_maf_masks(arrays.af, maf_grid)
-
-    solution = run_inference_pipeline(
-        arrays=arrays,
-        maf_grid=maf_grid,
-        maf_masks=maf_masks,
-        seed=args.seed,
-        config=InferenceConfig(
-            num_clusters=args.num_clusters,
-            batch_size=args.batch_size,
-            max_iter=args.max_iter,
-            step_size=args.step_size,
-            filter_threshold=args.filter,
-            penalty=args.penalty,
-        ),
-    )
-
-    if solution.value is not None and solution.result in (RESULTS.successful, RESULTS.max_steps_reached):
-        payload_to_long_dataframe(solution.value).write_csv(args.output, separator="\t")
-
-    if solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
-        reason = None
-        if isinstance(solution.stats, dict):
-            reason = solution.stats.get("reason")
-        if reason is None:
-            reason = f"Inference failed with status '{solution.result.value}'."
-        print(reason, file=sys.stderr)
-
-    return _solution_exit_code(solution.result)
+    result_df.write_csv(args.output, separator="\t")
+    return 0
 
 
-def run_curve_cli_workflow(args: ap.Namespace) -> int:
-    solution = run_curve_workflow(args.data, generate_plots=not args.fit_only)
-    if solution.result != RESULTS.successful:
-        reason = None
-        if isinstance(solution.stats, dict):
-            reason = solution.stats.get("reason")
-        if reason is None:
-            reason = f"Curve workflow failed with status '{solution.result.value}'."
-        print(reason, file=sys.stderr)
-        return 2
+def run_curve_cli_pipeline(args: ap.Namespace) -> int:
+    try:
+        coef_df = run_curve_pipeline(args.data, generate_plots=not args.fit_only)
+    except CurvePipelineError as exc:
+        print(str(exc), file=sys.stderr)
+        return _solution_exit_code(exc.result)
 
-    coef_df = pl.DataFrame(solution.value["coefficients"])
     coef_df.write_csv(args.output, separator="\t")
     return 0
 

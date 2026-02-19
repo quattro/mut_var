@@ -1,43 +1,41 @@
 # Public API
 
-## Canonical Workflow Entrypoints
+## Canonical Pipeline Entrypoints
 
 Import from package root:
 
 ```python
 from mut_var import (
-    InferenceArrays,
-    InferenceConfig,
-    RESULTS,
-    Solution,
-    fit_baseline,
-    fit_curve,
-    fit_refit_grid,
-    run_curve_workflow,
+    run_curve_pipeline,
     run_inference_pipeline,
-    run_profiled_inference_pipeline,
 )
 ```
 
-Supported workflow APIs:
+Supported pipeline APIs:
 
-- `run_inference_pipeline`: infer mixture weights across MAF thresholds.
-- `run_curve_workflow`: fit-only or fit+plot curve workflow.
-- `run_profiled_inference_pipeline`: compile/steady-state profiling helper.
+- `run_inference_pipeline`: validated dataframe ingress -> long-form coefficients `polars.DataFrame`.
+- `run_curve_pipeline`: fit-only or fit+plot curve pipeline -> coefficient `polars.DataFrame`.
+
+Supported numerics APIs:
+
+- `mut_var.numerics.run_inference_pipeline`: numerics pipeline with `Solution` status/result payload.
+- `mut_var.numerics.run_profiled_inference_pipeline`: compile/steady-state profiling helper.
+- `mut_var.numerics.fit_baseline`
+- `mut_var.numerics.fit_curve`
+- `mut_var.numerics.fit_refit_grid`
 
 Supported contract types:
 
-- `RESULTS`
-- `Solution`
-- `InferenceArrays`
-- `InferenceConfig`
+- `mut_var.contracts.RESULTS`
+- `mut_var.contracts.Solution`
+- `mut_var.numerics.pipeline.InferenceArrays`
+- `mut_var.numerics.pipeline.InferenceConfig`
 
 ## Deprecated Internal Patterns
 
 These internal call patterns are deprecated and not part of the supported API contract:
 
 - Importing objectives/optimizers from `mut_var.cli`
-- Calling legacy script internals in `fit.curve.new.py` directly
-- Reaching into adapter internals when canonical workflow entrypoints are available
+- Reaching into adapter internals when canonical pipeline entrypoints are available
 
-Use package-root exports and workflow modules documented above for forward compatibility.
+Use package-root exports and pipeline modules documented above for forward compatibility.

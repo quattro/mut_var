@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+# pattern: Functional Core
 from time import perf_counter
+from typing import NamedTuple
 
 import jax
 import jax.nn as nn
@@ -15,8 +16,7 @@ from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics.baseline import Params
 
 
-@dataclass(frozen=True, slots=True)
-class RefitConfig:
+class RefitConfig(NamedTuple):
     penalty: float = 1.0
     max_iter: int = 100
     tol: float = 1e-3

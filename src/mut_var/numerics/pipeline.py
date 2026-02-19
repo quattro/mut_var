@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+# pattern: Functional Core
+from typing import Any, NamedTuple
 
 import jax.numpy as jnp
 import jax.random as rdm
@@ -14,15 +14,13 @@ from mut_var.numerics.profiling import profile_solution_runs
 from mut_var.numerics.refit import fit_refit_grid, RefitConfig
 
 
-@dataclass(frozen=True, slots=True)
-class InferenceArrays:
+class InferenceArrays(NamedTuple):
     af: ArrayLike
     beta_hat: ArrayLike
     s2: ArrayLike
 
 
-@dataclass(frozen=True, slots=True)
-class InferenceConfig:
+class InferenceConfig(NamedTuple):
     num_clusters: int
     batch_size: int = 10_000
     max_iter: int = 100

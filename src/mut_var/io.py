@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+# pattern: Imperative Shell
 import hashlib
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 
 
-@dataclass(frozen=True, slots=True)
 class MutVarInputError(ValueError):
     message: str
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
     def __str__(self) -> str:
         return self.message

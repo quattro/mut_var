@@ -94,7 +94,7 @@ def test_refit_retrace_diagnostics_have_stable_likelihood_shapes_retrace():
         config=InferenceConfig(num_clusters=4, max_iter=2, batch_size=8, step_size=0.5),
     )
 
-    assert solution.result in {RESULTS.successful, RESULTS.max_steps_reached}
+    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
     refit_stats = solution.stats["refit"]
     diagnostics = refit_stats["threshold_diagnostics"]
     assert len(diagnostics) == len(maf_grid)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+# pattern: Functional Core
 from typing import NamedTuple
 
 import jax
@@ -20,8 +20,7 @@ class Params(NamedTuple):
     var_k: Array
 
 
-@dataclass(frozen=True, slots=True)
-class BaselineConfig:
+class BaselineConfig(NamedTuple):
     num_clusters: int
     batch_size: int = 10_000
     max_iter: int = 100

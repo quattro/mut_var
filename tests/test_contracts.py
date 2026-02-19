@@ -1,11 +1,12 @@
 from dataclasses import FrozenInstanceError
 
+import equinox.internal as eqxi
 import pytest
 
-from mut_var import RESULTS, Solution
+from mut_var.contracts import RESULTS, Solution
 
 
-def test_contracts_exported_from_package_root():
+def test_contracts_enum_values_are_stable():
     expected = {
         "successful",
         "invalid_input",
@@ -13,7 +14,12 @@ def test_contracts_exported_from_package_root():
         "nonfinite_objective",
         "max_steps_reached",
     }
-    assert expected == {status.value for status in RESULTS}
+    assert expected == set(RESULTS._name_to_item.keys())
+    assert expected == set(RESULTS._index_to_message)
+
+
+def test_results_uses_equinox_enumeration():
+    assert issubclass(RESULTS, eqxi.Enumeration)
 
 
 def test_solution_preserves_status_and_diagnostics():
@@ -38,4 +44,4 @@ def test_solution_is_immutable_and_ok_on_success():
 
     assert solution.ok
     with pytest.raises(FrozenInstanceError):
-        solution.result = RESULTS.max_steps_reached
+        setattr(solution, "result", RESULTS.max_steps_reached)

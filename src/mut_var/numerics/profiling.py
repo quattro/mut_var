@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+# pattern: Imperative Shell
 from statistics import mean
 from time import perf_counter
 from typing import Callable
 
-from mut_var.contracts import Solution
+import equinox as eqx
+
+from mut_var.contracts import RESULTS, Solution
 
 
-@dataclass(frozen=True, slots=True)
-class PerformanceGateResult:
+class PerformanceGateResult(eqx.Module):
     baseline_seconds: float
     candidate_seconds: float
     improvement_percent: float
@@ -61,13 +62,13 @@ def profile_solution_runs(
         start = perf_counter()
         solution = run_once()
         steady_elapsed.append(perf_counter() - start)
-        steady_results.append(solution.result.value)
+        steady_results.append(RESULTS[solution.result])
 
     return {
         "compile": {
             "count": 1,
             "elapsed_seconds": compile_elapsed,
-            "result": compile_solution.result.value,
+            "result": RESULTS[compile_solution.result],
         },
         "steady_state": {
             "runs": steady_runs,

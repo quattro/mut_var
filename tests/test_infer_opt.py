@@ -21,7 +21,7 @@ def test_fit_baseline_returns_structured_solution_on_valid_arrays():
     )
 
     assert isinstance(solution, Solution)
-    assert solution.result in {RESULTS.successful, RESULTS.max_steps_reached}
+    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
     assert solution.value is not None
     assert isinstance(solution.stats, dict)
     assert "objective" in solution.stats

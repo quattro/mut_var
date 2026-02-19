@@ -15,8 +15,8 @@ from mut_var.contracts import RESULTS
 
 
 REQUIRED_FAILURE_STATES = {
-    RESULTS.empty_subset.value,
-    RESULTS.nonfinite_objective.value,
+    RESULTS[RESULTS.empty_subset],
+    RESULTS[RESULTS.nonfinite_objective],
 }
 
 
@@ -47,7 +47,7 @@ def evaluate_release_gate_payload(payload: dict[str, object]) -> tuple[bool, lis
     if passed is not True:
         errors.append("Benchmark report marks comparison.passed as false.")
 
-    available_states = {status.value for status in RESULTS}
+    available_states = set(RESULTS._index_to_message)
     missing_states = REQUIRED_FAILURE_STATES.difference(available_states)
     if missing_states:
         errors.append(

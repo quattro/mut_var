@@ -35,17 +35,18 @@ pip install mut-var
   - Invalid CLI arguments or invalid input data return a deterministic non-zero exit code.
   - Errors are emitted as actionable stderr messages.
 
-## Inference Workflow
+## Inference Pipeline
 
-Canonical infer workflow:
+Canonical infer pipeline:
 
 - CLI: `mutvar infer <sumstats.tsv> [options]`
-- API: `mut_var.run_inference_pipeline(...)`
+- API (pipeline): `mut_var.run_inference_pipeline(df, ...)` -> validated `polars.DataFrame`
+- API (numerics): `mut_var.numerics.run_inference_pipeline(...)` -> `mut_var.contracts.Solution`
 
-Canonical curve workflow:
+Canonical curve pipeline:
 
 - CLI: `mutvar curve <mutvar-output.tsv> [--fit-only]`
-- API: `mut_var.run_curve_workflow(input_path, generate_plots=...)`
+- API: `mut_var.run_curve_pipeline(input_path, generate_plots=...)` -> coefficients `polars.DataFrame`
 
 ## Architecture Contract
 
@@ -55,15 +56,15 @@ Canonical numerics entrypoints live under `mut_var.numerics`:
 - `mut_var.numerics.fit_refit_grid`
 - `mut_var.numerics.run_inference_pipeline`
 
-Core numerics APIs return `mut_var.Solution` with explicit `result` status and diagnostics in
-`stats`/`state`.
+Pipeline APIs return dataframe outputs for downstream consumption and file IO.
+Core numerics APIs return `mut_var.contracts.Solution` with explicit `result` status and diagnostics in `stats`/`state`.
 
 `mut_var.cli` is the imperative shell (argument parsing, boundary validation, IO orchestration); it
 is not the numerics implementation module.
 
-## Failure Status Catalog
+## Numerics Failure Status Catalog
 
-`mut_var.RESULTS` explicitly encodes workflow outcomes:
+`mut_var.contracts.RESULTS` explicitly encodes pipeline outcomes:
 
 - `successful`
 - `invalid_input`
@@ -71,7 +72,7 @@ is not the numerics implementation module.
 - `nonfinite_objective`
 - `max_steps_reached`
 
-`mut_var.Solution` carries:
+`mut_var.contracts.Solution` carries:
 
 - `value`: result payload (if available)
 - `result`: status code from `RESULTS`
@@ -83,22 +84,30 @@ Empty-subset and non-finite paths are explicit and diagnosable.
 ### Failure Handling Examples
 
 ```python
-from mut_var import RESULTS, run_inference_pipeline
+from mut_var import run_inference_pipeline
 
-solution = run_inference_pipeline(...)
-if solution.result == RESULTS.empty_subset:
-    print("No variants passed the current threshold mask.")
-elif solution.result == RESULTS.nonfinite_objective:
-    print("Numerics produced a non-finite objective; inspect solution.stats.")
+result_df = run_inference_pipeline(df)
+print(result_df.head())
 ```
 
-## Curve Workflow Contract
+For numerics-level status handling:
+
+```python
+from mut_var.contracts import RESULTS
+from mut_var.numerics import run_inference_pipeline
+
+solution = run_inference_pipeline(...)
+if solution.result != RESULTS.successful:
+    print(solution.result, solution.stats)
+```
+
+## Curve Pipeline Contract
 
 Curve fitting is split into:
 
 - Pure numerics: `mut_var.numerics.curve_fit`
 - Optional plotting adapter: `mut_var.plotting.curve_plots`
-- Orchestration workflow: `mut_var.curve.run_curve_workflow`
+- Orchestration pipeline: `mut_var.curve.run_curve_pipeline`
 
 Behavior guarantees:
 
@@ -111,14 +120,15 @@ Behavior guarantees:
 
 This release is a breaking hardening release. Migration summary:
 
-1. Replace direct imports of legacy CLI internals with package-root workflow APIs.
-2. Treat `Solution.result` as the canonical success/failure signal.
-3. Update automation to required gates:
+1. Replace direct imports of legacy CLI internals with package-root pipeline APIs.
+2. Use dataframe pipeline APIs (`run_inference_pipeline`, `run_curve_pipeline`) at the orchestration boundary.
+3. Treat `Solution.result` as the canonical success/failure signal for numerics-level APIs.
+4. Update automation to required gates:
    - `ruff check src/mut_var tests`
    - `mypy src/mut_var tests`
    - `pytest -p no:capture`
    - `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
-4. Enforce release gate:
+5. Enforce release gate:
    - `python scripts/check_release_gate.py --report benchmarks/results/latest.json`
 
 Detailed breaking-change notes are in `CHANGELOG.md`.

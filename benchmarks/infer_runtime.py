@@ -4,10 +4,9 @@ import argparse
 import json
 import sys
 
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import sleep
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -26,8 +25,7 @@ from mut_var.numerics.pipeline import InferenceConfig, run_inference_pipeline
 from mut_var.numerics.profiling import evaluate_performance_gate, profile_solution_runs
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeBenchmarkConfig:
+class RuntimeBenchmarkConfig(NamedTuple):
     seed: int
     num_rows: int
     num_clusters: int
@@ -125,7 +123,7 @@ def profile_path(
             config=infer_config,
         )
         if solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
-            raise RuntimeError(f"Pipeline failed during benchmark path: {solution.result.value}")
+            raise RuntimeError(f"Pipeline failed during benchmark path: {RESULTS[solution.result]}")
         return solution
 
     return profile_solution_runs(run_once, steady_runs=config.steady_runs), cache_stats
@@ -146,7 +144,7 @@ def build_report(config: RuntimeBenchmarkConfig) -> dict[str, Any]:
     )
 
     return {
-        "config": asdict(config),
+        "config": dict(config._asdict()),
         "compile": {
             "baseline": baseline_profile["compile"],
             "candidate": candidate_profile["compile"],

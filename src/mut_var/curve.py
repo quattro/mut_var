@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+# pattern: Imperative Shell
 from pathlib import Path
+from typing import Any
 
 import jax.numpy as jnp
 import polars as pl
 
-from mut_var.contracts import RESULTS, Solution
+from mut_var.contracts import RESULTS
 from mut_var.numerics.curve_fit import curve, fit_curve
 
 
@@ -15,29 +17,48 @@ def _to_scalar_var(variance) -> float:
     return float(variance)
 
 
-def run_curve_workflow(input_path: str, *, generate_plots: bool) -> Solution:
+class CurvePipelineError(RuntimeError):
+    result: RESULTS
+    stats: dict[str, Any] | None
+
+    def __init__(self, result: RESULTS, reason: str, *, stats: dict[str, Any] | None = None):
+        super().__init__(reason)
+        self.result = result
+        self.stats = stats
+
+
+def _coefficients_dataframe(coeff_rows: list[dict[str, float]]) -> pl.DataFrame:
+    if not coeff_rows:
+        return pl.DataFrame(
+            schema={
+                "var0": pl.Float64,
+                "coef_left": pl.Float64,
+                "coef_right": pl.Float64,
+                "coef_rate": pl.Float64,
+            }
+        )
+
+    return pl.DataFrame(coeff_rows).select(["var0", "coef_left", "coef_right", "coef_rate"])
+
+
+def run_curve_pipeline(input_path: str, *, generate_plots: bool) -> pl.DataFrame:
     try:
         df = pl.read_csv(input_path, separator="\t")
     except Exception as exc:
-        return Solution(
-            value=None,
+        raise CurvePipelineError(
             result=RESULTS.invalid_input,
-            stats={"reason": f"could not read curve input file: {exc}"},
-            state=None,
-        )
+            reason=f"could not read curve input file: {exc}",
+        ) from exc
 
     required = {"maf", "value", "var0"}
     missing = required.difference(df.columns)
     if missing:
-        return Solution(
-            value=None,
+        raise CurvePipelineError(
             result=RESULTS.invalid_input,
-            stats={"reason": f"missing required curve columns: {', '.join(sorted(missing))}"},
-            state=None,
+            reason=f"missing required curve columns: {', '.join(sorted(missing))}",
         )
 
     coeff_rows: list[dict[str, float]] = []
-    plot_paths: list[str] = []
 
     grouped = df.sort(["var0", "maf"]).group_by("var0", maintain_order=True)
     for variance, df_sub in grouped:
@@ -49,11 +70,13 @@ def run_curve_workflow(input_path: str, *, generate_plots: bool) -> Solution:
         if fit_solution.result != RESULTS.successful:
             details = dict(fit_solution.stats or {})
             details["var0"] = var0
-            return Solution(
-                value=None,
+            reason = details.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                reason = f"curve fit failed with status '{RESULTS[fit_solution.result]}' at var0={var0}."
+            raise CurvePipelineError(
                 result=fit_solution.result,
+                reason=reason,
                 stats=details,
-                state=fit_solution.state,
             )
 
         coef = fit_solution.value
@@ -80,11 +103,6 @@ def run_curve_workflow(input_path: str, *, generate_plots: bool) -> Solution:
                 title=f"var0 = {var0}",
                 output_path=out_path,
             )
-            plot_paths.append(str(rendered))
+            _ = rendered
 
-    return Solution(
-        value={"coefficients": coeff_rows, "plots": plot_paths},
-        result=RESULTS.successful,
-        stats={"num_curves": len(coeff_rows), "plots_generated": len(plot_paths)},
-        state=None,
-    )
+    return _coefficients_dataframe(coeff_rows)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable
+# pattern: Imperative Shell
+from typing import Callable, NamedTuple
 
 import polars as pl
 
@@ -9,8 +9,7 @@ from mut_var.io import dataframe_fingerprint
 from mut_var.numerics.pipeline import InferenceArrays
 
 
-@dataclass(frozen=True, slots=True)
-class CacheKey:
+class CacheKey(NamedTuple):
     fingerprint: str
     af_col: str
     beta_col: str

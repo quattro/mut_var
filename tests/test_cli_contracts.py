@@ -4,9 +4,13 @@ import sys
 from io import StringIO
 from pathlib import Path
 
-import mut_var.cli as cli
+import polars as pl
 
-from mut_var.contracts import RESULTS, Solution
+import mut_var.cli as cli
+import mut_var.infer as infer_module
+
+from mut_var.contracts import RESULTS
+from mut_var.infer import InferencePipelineError
 from scripts.check_release_gate import evaluate_release_gate
 from tests.helpers import assert_no_traceback, fixture_path
 
@@ -15,7 +19,7 @@ def _guard_numerics(monkeypatch):
     def _unexpected_call(*_args, **_kwargs):
         raise AssertionError("Numerics should not execute for boundary validation failures.")
 
-    monkeypatch.setattr(cli, "run_inference_pipeline", _unexpected_call)
+    monkeypatch.setattr(infer_module, "_run_numerics_inference_pipeline", _unexpected_call)
 
 
 def _write_sumstats(path, content: str) -> None:
@@ -124,7 +128,7 @@ def test_invalid_maf_grid_returns_nonzero(monkeypatch, tmp_path):
     assert_no_traceback(err)
 
 
-def test_cli_maps_max_steps_status_to_zero_exit(monkeypatch, tmp_path):
+def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     stdout, stderr = _patch_streams(monkeypatch)
     valid_path = tmp_path / "sumstats.tsv"
     valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
@@ -132,14 +136,43 @@ def test_cli_maps_max_steps_status_to_zero_exit(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli,
         "run_inference_pipeline",
-        lambda **_kwargs: Solution(value=None, result=RESULTS.max_steps_reached, stats={}, state=None),
+        lambda *_args, **_kwargs: pl.DataFrame(
+            {
+                "mu0": [0.0],
+                "var0": [0.1],
+                "maf": [0.001],
+                "name": ["pi0"],
+                "value": [1.0],
+            }
+        ),
     )
 
     code = cli.run_cli(["infer", str(valid_path)])
 
     assert code == 0
-    assert stdout.getvalue() == ""
+    assert "mu0" in stdout.getvalue()
     assert_no_traceback(stderr.getvalue())
+
+
+def test_cli_maps_inference_pipeline_error_status_to_exit(monkeypatch, tmp_path):
+    _, stderr = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+
+    def _raise_error(*_args, **_kwargs):
+        raise InferencePipelineError(
+            result=RESULTS.nonfinite_objective,
+            reason="objective became non-finite",
+        )
+
+    monkeypatch.setattr(cli, "run_inference_pipeline", _raise_error)
+
+    code = cli.run_cli(["infer", str(valid_path)])
+
+    assert code == 1
+    err = stderr.getvalue()
+    assert "non-finite" in err
+    assert_no_traceback(err)
 
 
 def test_cli_requires_explicit_subcommand(monkeypatch, tmp_path):
