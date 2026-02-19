@@ -4,6 +4,7 @@
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
 from .contracts import RESULTS, Solution
+from .curve import run_curve_workflow
 from .infer import InferenceArrays, InferenceConfig, run_inference_pipeline
 
 try:
@@ -21,5 +22,6 @@ __all__ = [
     "RESULTS",
     "Solution",
     "__version__",
+    "run_curve_workflow",
     "run_inference_pipeline",
 ]
