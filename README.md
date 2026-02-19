@@ -52,6 +52,7 @@ Canonical curve pipeline:
 Canonical numerics entrypoints live under `mut_var.numerics`:
 
 - `mut_var.numerics.fit_baseline`
+- `mut_var.numerics.fit_curve`
 - `mut_var.numerics.fit_refit_grid`
 
 Pipeline APIs return dataframe outputs for downstream consumption and file IO.
@@ -92,7 +93,7 @@ print(result_df.head())
 
 Curve fitting is split into:
 
-- Pure numerics: `mut_var.numerics.curve_fit`
+- Pure numerics: `mut_var.numerics.fit_curve`
 - Optional plotting adapter: `mut_var.plotting.curve_plots`
 - Orchestration pipeline: `mut_var.curve.run_curve_pipeline`
 
@@ -114,9 +115,6 @@ This release is a breaking hardening release. Migration summary:
    - `ruff check src/mut_var tests`
    - `mypy src/mut_var tests`
    - `pytest -p no:capture`
-   - `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
-5. Enforce release gate:
-   - `python scripts/check_release_gate.py --report benchmarks/results/latest.json`
 
 Detailed breaking-change notes are in `CHANGELOG.md`.
 Human migration review artifact: `docs/reviews/migration-guide-signoff.md`.
@@ -140,7 +138,8 @@ Output report schema guarantees:
 Interpretation rules:
 
 - Treat compile and steady-state metrics independently; do not combine them.
-- The acceptance gate requires `comparison.improvement_percent >= 20.0`.
+- When evaluating with `scripts/check_release_gate.py`, the acceptance gate requires
+  `comparison.improvement_percent >= 20.0`.
 - Benchmark representativeness review is recorded in
   `docs/reviews/benchmark-representativeness.md`.
 
@@ -151,7 +150,6 @@ Required checks (local and CI must match):
 - `ruff check src/mut_var tests`
 - `mypy src/mut_var tests`
 - `pytest -p no:capture`
-- `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
 
 Algorithm-scope constraint:
 
@@ -163,6 +161,10 @@ Release-readiness quick check:
 - `ruff check src/mut_var tests`
 - `mypy src/mut_var tests`
 - `pytest -p no:capture`
+
+Optional performance validation:
+
+- `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
 - `python scripts/check_release_gate.py --report benchmarks/results/latest.json`
 
 ## License

@@ -1,6 +1,6 @@
 # mut_var
 
-Last verified: 2026-02-18
+Last verified: 2026-02-19
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.
@@ -49,11 +49,10 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `Solution` carries `value`, `result`, and optional `stats`/`state`.
 - Data-structure rule: data-only contracts use `NamedTuple`; behavior-bearing contracts use `equinox.Module`.
 - `BaselineConfig` and `InferenceConfig` no longer include a `batch_size` field.
-- Canonical release gates remain aligned between local and CI:
+- Canonical quality gates remain aligned between local and CI:
   - `ruff check src/mut_var tests`
   - `mypy src/mut_var tests`
   - `pytest -p no:capture`
-  - `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
 
 ## Commands
 - `pip install -e .`
