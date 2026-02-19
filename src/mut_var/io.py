@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 
@@ -129,3 +131,22 @@ def validate_maf_grid(lowest: Any, highest: Any, num_breaks: Any) -> None:
         raise MAFGridError("lowest must be strictly less than highest.")
     if num_breaks < 2:
         raise MAFGridError("num_breaks must be >= 2.")
+
+
+def dataframe_fingerprint(df: pl.DataFrame, columns: list[str]) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(str(df.height).encode("utf-8"))
+    hasher.update(str(df.width).encode("utf-8"))
+    hasher.update(",".join(columns).encode("utf-8"))
+
+    for col in columns:
+        series = df.get_column(col)
+        hasher.update(col.encode("utf-8"))
+        hasher.update(str(series.dtype).encode("utf-8"))
+        if series.dtype.is_numeric():
+            arr = np.ascontiguousarray(series.cast(pl.Float64, strict=False).to_numpy())
+        else:
+            arr = np.ascontiguousarray(series.cast(pl.Utf8, strict=False).to_numpy())
+        hasher.update(arr.tobytes())
+
+    return hasher.hexdigest()
