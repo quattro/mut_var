@@ -51,11 +51,7 @@ def penalized_objective(
     obj_term = jnp.sum(weights * jnp.log(mixture_pdf))
     log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
 
-    p1 = jnp.sum(
-        nn.relu(
-            baseline_param.pi[1:] * param.pi[:-1] - baseline_param.pi[:-1] * param.pi[1:]
-        )
-    )
+    p1 = jnp.sum(nn.relu(baseline_param.pi[1:] * param.pi[:-1] - baseline_param.pi[:-1] * param.pi[1:]))
     rel_point_mass_dist = nn.relu(baseline_param.pi[0] - param.pi[0])
 
     penalty_term = penalty * (p1 + rel_point_mass_dist)

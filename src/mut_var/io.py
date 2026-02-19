@@ -85,15 +85,11 @@ def validate_sumstats_domain(df: pl.DataFrame, af_col: str, se_col: str) -> None
 
     af_oor = int(((af < 0.0) | (af > 1.0)).sum())
     if af_oor > 0:
-        raise ValueError(
-            f"Column '{af_col}' must be within [0, 1]. Found {af_oor} out-of-range row(s)."
-        )
+        raise ValueError(f"Column '{af_col}' must be within [0, 1]. Found {af_oor} out-of-range row(s).")
 
     se_nonpositive = int((se <= 0.0).sum())
     if se_nonpositive > 0:
-        raise ValueError(
-            f"Column '{se_col}' must be strictly positive. Found {se_nonpositive} non-positive row(s)."
-        )
+        raise ValueError(f"Column '{se_col}' must be strictly positive. Found {se_nonpositive} non-positive row(s).")
 
 
 def validate_maf_grid(lowest: Any, highest: Any, num_breaks: Any) -> None:

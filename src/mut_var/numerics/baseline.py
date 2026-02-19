@@ -67,10 +67,7 @@ def baseline_objective(
     log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
     pi = param.pi
     log_likelihood = jnp.sum(
-        jnp.log(
-            pdf(beta_hat, s2, param.mu_k, param.var_k) @ pi[1:]
-            + _pdf(beta_hat, s2, 0.0, 0.0) * pi[0]
-        )
+        jnp.log(pdf(beta_hat, s2, param.mu_k, param.var_k) @ pi[1:] + _pdf(beta_hat, s2, 0.0, 0.0) * pi[0])
     )
     return log_likelihood - log_penalty
 
@@ -250,10 +247,7 @@ def fit_baseline(
     params = Params(
         pi=rdm.dirichlet(key, alpha),
         mu_k=jnp.zeros(config.num_clusters - 1),
-        var_k=jnp.exp(
-            jnp.linspace(jnp.log(min_val), jnp.log(max_val), config.num_clusters - 1)
-        )
-        ** 2,
+        var_k=jnp.exp(jnp.linspace(jnp.log(min_val), jnp.log(max_val), config.num_clusters - 1)) ** 2,
     )
 
     obj = eqx.filter_jit(baseline_objective)
