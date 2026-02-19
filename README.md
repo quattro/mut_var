@@ -35,6 +35,18 @@ pip install mut-var
   - Invalid CLI arguments or invalid input data return a deterministic non-zero exit code.
   - Errors are emitted as actionable stderr messages.
 
+## Inference Workflow
+
+Canonical infer workflow:
+
+- CLI: `mutvar <sumstats.tsv> [options]`
+- API: `mut_var.run_inference_pipeline(...)`
+
+Canonical curve workflow:
+
+- CLI: `mutvar-curve <mutvar-output.tsv> [--fit-only]`
+- API: `mut_var.run_curve_workflow(input_path, generate_plots=...)`
+
 ## Architecture Contract
 
 Canonical numerics entrypoints live under `mut_var.numerics`:
@@ -48,6 +60,37 @@ Core numerics APIs return `mut_var.Solution` with explicit `result` status and d
 
 `mut_var.cli` is the imperative shell (argument parsing, boundary validation, IO orchestration); it
 is not the numerics implementation module.
+
+## Failure Status Catalog
+
+`mut_var.RESULTS` explicitly encodes workflow outcomes:
+
+- `successful`
+- `invalid_input`
+- `empty_subset`
+- `nonfinite_objective`
+- `max_steps_reached`
+
+`mut_var.Solution` carries:
+
+- `value`: result payload (if available)
+- `result`: status code from `RESULTS`
+- `stats`: diagnostics
+- `state`: optional solver state
+
+Empty-subset and non-finite paths are explicit and diagnosable.
+
+### Failure Handling Examples
+
+```python
+from mut_var import RESULTS, run_inference_pipeline
+
+solution = run_inference_pipeline(...)
+if solution.result == RESULTS.empty_subset:
+    print("No variants passed the current threshold mask.")
+elif solution.result == RESULTS.nonfinite_objective:
+    print("Numerics produced a non-finite objective; inspect solution.stats.")
+```
 
 ## Curve Workflow Contract
 
@@ -63,6 +106,23 @@ Behavior guarantees:
   adapters and produces no PNG side effects.
 - Plotting mode consumes precomputed fit outputs and only adds PNG side effects; fitted coefficients
   remain unchanged.
+
+## Migration Guide
+
+This release is a breaking hardening release. Migration summary:
+
+1. Replace direct imports of legacy CLI internals with package-root workflow APIs.
+2. Treat `Solution.result` as the canonical success/failure signal.
+3. Update automation to required gates:
+   - `ruff check src/mut_var tests`
+   - `mypy src/mut_var tests`
+   - `pytest -p no:capture`
+   - `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
+4. Enforce release gate:
+   - `python scripts/check_release_gate.py --report benchmarks/results/latest.json`
+
+Detailed breaking-change notes are in `CHANGELOG.md`.
+Human migration review artifact: `docs/reviews/migration-guide-signoff.md`.
 
 ## Benchmark Procedure
 
