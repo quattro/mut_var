@@ -10,7 +10,6 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - `fit_baseline(beta_hat, s2, key, config) -> Solution`
   - `fit_refit_grid(beta_hat, s2, maf_masks, init, config) -> Solution`
   - `fit_curve(maf, value) -> Solution`
-  - `run_inference_pipeline(arrays, maf_grid, maf_masks, seed, config) -> Solution`
 - **Guarantees**:
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths.
   - Baseline/refit optimization is full-batch and routed through Optimistix (`MutVarSolver` with backtracking line search).
@@ -37,14 +36,12 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 ## Invariants
 - `Params.pi` remains simplex-normalized after each Riemannian update.
 - `fit_refit_grid` returns one model per threshold plus the initial model on successful/recoverable runs.
-- `run_inference_pipeline` stops early on non-recoverable statuses and builds payloads only from recoverable baseline/refit solutions.
 - Solver outputs always report one canonical status: `successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, or `max_steps_reached`.
 
 ## Key Files
 - `src/mut_var/numerics/baseline.py` - baseline mixture fitting objective and solver wiring.
 - `src/mut_var/numerics/refit.py` - grid refit objective and sequential threshold updates.
 - `src/mut_var/numerics/_optimistix_solver.py` - shared Optimistix descent/solver adapters.
-- `src/mut_var/numerics/pipeline.py` - numerics orchestration and payload assembly.
 - `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
 
 ## Gotchas

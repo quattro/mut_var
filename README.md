@@ -41,7 +41,6 @@ Canonical infer pipeline:
 
 - CLI: `mutvar infer <sumstats.tsv> [options]`
 - API (pipeline): `mut_var.run_inference_pipeline(df, ...)` -> validated `polars.DataFrame`
-- API (numerics): `mut_var.numerics.run_inference_pipeline(...)` -> `mut_var.contracts.Solution`
 
 Canonical curve pipeline:
 
@@ -54,7 +53,6 @@ Canonical numerics entrypoints live under `mut_var.numerics`:
 
 - `mut_var.numerics.fit_baseline`
 - `mut_var.numerics.fit_refit_grid`
-- `mut_var.numerics.run_inference_pipeline`
 
 Pipeline APIs return dataframe outputs for downstream consumption and file IO.
 Core numerics APIs return `mut_var.contracts.Solution` with explicit `result` status and diagnostics in `stats`/`state`.
@@ -88,17 +86,6 @@ from mut_var import run_inference_pipeline
 
 result_df = run_inference_pipeline(df)
 print(result_df.head())
-```
-
-For numerics-level status handling:
-
-```python
-from mut_var.contracts import RESULTS
-from mut_var.numerics import run_inference_pipeline
-
-solution = run_inference_pipeline(...)
-if solution.result != RESULTS.successful:
-    print(solution.result, solution.stats)
 ```
 
 ## Curve Pipeline Contract

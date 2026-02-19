@@ -8,8 +8,6 @@ from pathlib import Path
 from time import sleep
 from typing import Any, NamedTuple
 
-import jax
-import jax.numpy as jnp
 import jax.random as rdm
 import polars as pl
 
@@ -18,11 +16,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from mut_var.adapters.array_cache import ArrayConversionCache
-from mut_var.adapters.tabular import build_maf_masks, to_inference_arrays, to_inference_arrays_cached
-from mut_var.contracts import RESULTS
-from mut_var.numerics.pipeline import InferenceConfig, run_inference_pipeline
-from mut_var.numerics.profiling import evaluate_performance_gate, profile_solution_runs
+from mut_var.adapters.array_cache import ArrayConversionCache  # noqa: E402
+from mut_var.adapters.tabular import to_inference_arrays, to_inference_arrays_cached  # noqa: E402
+from mut_var.infer import InferenceConfig, run_inference_pipeline  # noqa: E402
+from mut_var.numerics.profiling import evaluate_performance_gate, profile_solution_runs  # noqa: E402
 
 
 class RuntimeBenchmarkConfig(NamedTuple):
@@ -65,10 +62,6 @@ def generate_sumstats(config: RuntimeBenchmarkConfig) -> pl.DataFrame:
     )
 
 
-def _maf_grid(config: RuntimeBenchmarkConfig) -> jax.Array:
-    return jnp.exp(jnp.linspace(jnp.log(config.lowest), jnp.log(config.highest), config.num_breaks))
-
-
 def _inference_config(config: RuntimeBenchmarkConfig) -> InferenceConfig:
     return InferenceConfig(
         num_clusters=config.num_clusters,
@@ -87,7 +80,6 @@ def profile_path(
 ) -> tuple[dict[str, Any], dict[str, int]]:
     cache = ArrayConversionCache()
     cache_stats = {"hits": 0, "misses": 0}
-    maf_grid = _maf_grid(config)
     infer_config = _inference_config(config)
 
     def run_once():
@@ -104,7 +96,7 @@ def profile_path(
             else:
                 cache_stats["misses"] += 1
         else:
-            arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
+            to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
             cache_stats["misses"] += 1
             for _ in range(max(0, config.legacy_conversion_repeats - 1)):
                 # Simulates pre-refactor repeated host->device conversion in threshold workflows.
@@ -112,17 +104,17 @@ def profile_path(
             if config.legacy_conversion_delay_seconds > 0:
                 sleep(config.legacy_conversion_delay_seconds)
 
-        maf_masks = build_maf_masks(arrays.af, maf_grid)
-        solution = run_inference_pipeline(
-            arrays=arrays,
-            maf_grid=maf_grid,
-            maf_masks=maf_masks,
+        result_df = run_inference_pipeline(
+            df,
+            lowest=config.lowest,
+            highest=config.highest,
+            num_breaks=config.num_breaks,
             seed=config.seed,
             config=infer_config,
         )
-        if solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
-            raise RuntimeError(f"Pipeline failed during benchmark path: {RESULTS[solution.result]}")
-        return solution
+        if result_df.height == 0:
+            raise RuntimeError("inference pipeline produced an empty result during benchmark path")
+        return result_df
 
     return profile_solution_runs(run_once, steady_runs=config.steady_runs), cache_stats
 

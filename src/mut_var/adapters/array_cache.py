@@ -5,8 +5,8 @@ from typing import Callable, NamedTuple
 
 import polars as pl
 
+from mut_var.infer import InferenceArrays
 from mut_var.io import dataframe_fingerprint
-from mut_var.numerics.pipeline import InferenceArrays
 
 
 class CacheKey(NamedTuple):

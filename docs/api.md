@@ -18,8 +18,6 @@ Supported pipeline APIs:
 
 Supported numerics APIs:
 
-- `mut_var.numerics.run_inference_pipeline`: numerics pipeline with `Solution` status/result payload.
-- `mut_var.numerics.run_profiled_inference_pipeline`: compile/steady-state profiling helper.
 - `mut_var.numerics.fit_baseline`
 - `mut_var.numerics.fit_curve`
 - `mut_var.numerics.fit_refit_grid`
@@ -28,8 +26,8 @@ Supported contract types:
 
 - `mut_var.contracts.RESULTS`
 - `mut_var.contracts.Solution`
-- `mut_var.numerics.pipeline.InferenceArrays`
-- `mut_var.numerics.pipeline.InferenceConfig`
+- `mut_var.numerics.InferenceArrays`
+- `mut_var.numerics.InferenceConfig`
 
 ## Deprecated Internal Patterns
 

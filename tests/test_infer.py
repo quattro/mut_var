@@ -1,3 +1,6 @@
+import importlib.util
+import logging
+
 import jax.numpy as jnp
 import polars as pl
 import pytest
@@ -6,36 +9,9 @@ import mut_var
 import mut_var.cli as cli
 import mut_var.numerics as numerics
 
-from mut_var.adapters.tabular import build_maf_masks, to_inference_arrays
+from mut_var.adapters.tabular import to_inference_arrays
 from mut_var.contracts import RESULTS, Solution
-from mut_var.infer import run_inference_pipeline as run_inference_dataframe_pipeline
-from mut_var.numerics.pipeline import (
-    InferenceArrays,
-    InferenceConfig,
-    run_inference_pipeline as run_inference_numerics_pipeline,
-)
-
-
-def test_run_inference_numerics_pipeline_returns_solution_with_status_and_stats(sumstats_valid_df):
-    df = sumstats_valid_df
-    arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
-    maf_grid = jnp.asarray([1e-3, 5e-3])
-    maf_masks = build_maf_masks(arrays.af, maf_grid)
-
-    solution = run_inference_numerics_pipeline(
-        arrays=arrays,
-        maf_grid=maf_grid,
-        maf_masks=maf_masks,
-        seed=0,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
-    )
-
-    assert isinstance(solution, Solution)
-    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert isinstance(solution.stats, dict)
-    assert "num_models" in solution.stats
-    assert solution.value is not None
-    assert set(solution.value) == {"mu0", "var0", "maf", "name", "value"}
+from mut_var.infer import InferenceConfig, run_inference_pipeline as run_inference_dataframe_pipeline
 
 
 def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
@@ -53,12 +29,30 @@ def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
     assert result_df.columns == ["mu0", "var0", "maf", "name", "value"]
 
 
+def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
+    caplog.set_level(logging.INFO, logger="mut_var.infer")
+
+    run_inference_dataframe_pipeline(
+        sumstats_valid_df,
+        seed=0,
+        lowest=1e-3,
+        highest=5e-3,
+        num_breaks=2,
+        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+    )
+
+    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
+    assert any("fitting baseline model" in message for message in messages)
+    assert any("fitting refit grid" in message for message in messages)
+    assert any("building numerics payload" in message for message in messages)
+
+
 def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_df, monkeypatch):
-    import mut_var.infer as infer_module
+    import mut_var.numerics.baseline as baseline_module
 
     monkeypatch.setattr(
-        infer_module,
-        "_run_numerics_inference_pipeline",
+        baseline_module,
+        "fit_baseline",
         lambda **_kwargs: Solution(
             value=None,
             result=RESULTS.nonfinite_objective,
@@ -80,46 +74,59 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
     assert "non-finite" in str(err.value)
 
 
+def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df, monkeypatch):
+    import mut_var.numerics.baseline as baseline_module
+    import mut_var.numerics.refit as refit_module
+
+    baseline_params = baseline_module.Params(
+        pi=jnp.asarray([1.0], dtype=jnp.float64),
+        mu_k=jnp.asarray([], dtype=jnp.float64),
+        var_k=jnp.asarray([], dtype=jnp.float64),
+    )
+
+    monkeypatch.setattr(
+        baseline_module,
+        "fit_baseline",
+        lambda **_kwargs: Solution(
+            value=baseline_params,
+            result=RESULTS.successful,
+            stats={},
+            state=None,
+        ),
+    )
+    monkeypatch.setattr(
+        refit_module,
+        "fit_refit_grid",
+        lambda **_kwargs: Solution(
+            value=None,
+            result=RESULTS.empty_subset,
+            stats={"reason": "empty subset"},
+            state=None,
+        ),
+    )
+
+    with pytest.raises(ValueError) as err:
+        run_inference_dataframe_pipeline(
+            sumstats_valid_df,
+            seed=0,
+            lowest=1e-3,
+            highest=5e-3,
+            num_breaks=2,
+            config=InferenceConfig(num_clusters=1, max_iter=2, step_size=0.5),
+        )
+
+    assert "empty subset" in str(err.value)
+
+
 def test_orchestration_is_separate_from_cli_internals():
-    assert callable(run_inference_numerics_pipeline)
+    assert not hasattr(numerics, "run_inference_pipeline")
     assert not hasattr(cli, "penalized_objective")
     assert not hasattr(cli, "fit_mixture")
 
 
-def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays(sumstats_valid_df):
-    df = sumstats_valid_df
-    arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
-    assert not hasattr(arrays.beta_hat, "columns")
-
-    bad_arrays = InferenceArrays(af=df, beta_hat=df, s2=df)
-    maf_grid = jnp.asarray([1e-3, 5e-3])
-    maf_masks = jnp.asarray([[True, True, True, True, True, True, True, True]])
-
-    solution = run_inference_numerics_pipeline(
-        arrays=bad_arrays,
-        maf_grid=maf_grid,
-        maf_masks=maf_masks,
-        seed=0,
-        config=InferenceConfig(num_clusters=3, max_iter=2),
-    )
-
-    assert solution.result == RESULTS.invalid_input
-
-
-def test_pipeline_returns_empty_subset_when_masks_select_nothing(sumstats_valid_df):
+def test_adapters_convert_to_arrays(sumstats_valid_df):
     arrays = to_inference_arrays(sumstats_valid_df, "effect_allele_frequency", "beta", "standard_error")
-    maf_grid = jnp.asarray([0.49, 0.5])
-    maf_masks = jnp.zeros((2, len(arrays.af)), dtype=bool)
-
-    solution = run_inference_numerics_pipeline(
-        arrays=arrays,
-        maf_grid=maf_grid,
-        maf_masks=maf_masks,
-        seed=0,
-        config=InferenceConfig(num_clusters=3, max_iter=2),
-    )
-
-    assert solution.result == RESULTS.empty_subset
+    assert not hasattr(arrays.beta_hat, "columns")
 
 
 def test_package_root_exports_canonical_pipeline_entrypoints():
@@ -128,7 +135,18 @@ def test_package_root_exports_canonical_pipeline_entrypoints():
 
 
 def test_numerics_public_surface_does_not_export_profiling_helpers():
+    assert not hasattr(numerics, "run_inference_pipeline")
     assert not hasattr(numerics, "run_profiled_inference_pipeline")
     assert not hasattr(numerics, "evaluate_performance_gate")
     assert not hasattr(numerics, "profile_solution_runs")
     assert not hasattr(numerics, "PerformanceGateResult")
+
+
+def test_numerics_module_owns_numerics_entrypoint():
+    import mut_var.infer as infer_module
+
+    assert importlib.util.find_spec("mut_var.numerics.pipeline") is None
+    assert not hasattr(infer_module, "run_numerics_inference_pipeline")
+    assert infer_module.InferenceArrays is numerics.InferenceArrays
+    assert infer_module.InferenceConfig is numerics.InferenceConfig
+    assert not hasattr(numerics, "run_inference_pipeline")

@@ -9,8 +9,8 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - **Exposes**:
   - CLI entrypoint: `mutvar` (`infer`, `curve`)
   - Package-root pipeline APIs: `run_inference_pipeline`, `run_curve_pipeline`
-  - Numerics APIs: `mut_var.numerics.run_inference_pipeline`, `mut_var.numerics.run_profiled_inference_pipeline`, `mut_var.numerics.fit_baseline`, `mut_var.numerics.fit_curve`, `mut_var.numerics.fit_refit_grid`
-  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.numerics.pipeline.InferenceArrays`, `mut_var.numerics.pipeline.InferenceConfig`
+  - Numerics APIs: `mut_var.numerics.fit_baseline`, `mut_var.numerics.fit_curve`, `mut_var.numerics.fit_refit_grid`
+  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.numerics.InferenceArrays`, `mut_var.numerics.InferenceConfig`
 - **Guarantees**:
   - Boundary validation happens at ingress before numerics execute.
   - Pipeline/orchestration APIs accept validated dataframe or array-like inputs and return dataframe outputs for downstream writing/processing.

@@ -1,6 +1,8 @@
 # auto-gen version file
 src/mut_var/_version.py
 
+data/
+
 # Temporary and binary files
 *~
 *.py[cod]

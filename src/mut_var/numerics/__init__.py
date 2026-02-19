@@ -1,6 +1,7 @@
+from mut_var.infer import InferenceArrays, InferenceConfig
+
 from .baseline import BaselineConfig, fit_baseline, Params
 from .curve_fit import curve, fit_curve
-from .pipeline import InferenceArrays, InferenceConfig, run_inference_pipeline
 from .refit import fit_refit_grid, RefitConfig
 
 __all__ = [
@@ -13,5 +14,4 @@ __all__ = [
     "fit_baseline",
     "fit_curve",
     "fit_refit_grid",
-    "run_inference_pipeline",
 ]

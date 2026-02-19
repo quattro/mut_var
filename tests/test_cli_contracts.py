@@ -5,7 +5,7 @@ from io import StringIO
 import polars as pl
 
 import mut_var.cli as cli
-import mut_var.infer as infer_module
+import mut_var.numerics.baseline as baseline_module
 
 from tests.helpers import assert_no_traceback, fixture_path
 
@@ -14,7 +14,7 @@ def _guard_numerics(monkeypatch):
     def _unexpected_call(*_args, **_kwargs):
         raise AssertionError("Numerics should not execute for boundary validation failures.")
 
-    monkeypatch.setattr(infer_module, "_run_numerics_inference_pipeline", _unexpected_call)
+    monkeypatch.setattr(baseline_module, "fit_baseline", _unexpected_call)
 
 
 def _write_sumstats(path, content: str) -> None:

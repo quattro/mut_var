@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import polars as pl
 
 from mut_var.adapters.array_cache import ArrayConversionCache
-from mut_var.numerics.pipeline import InferenceArrays
+from mut_var.infer import InferenceArrays
 
 
 def to_inference_arrays(
