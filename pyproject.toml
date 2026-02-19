@@ -25,6 +25,8 @@ classifiers = [
 ]
 dependencies = [
     "jax",
+    "optimistix",
+    "matplotlib",
     "numpy",
     "polars",
     "jaxtyping"
@@ -32,6 +34,7 @@ dependencies = [
 
 [project.scripts]
 mutvar = "mut_var.cli:run_cli"
+mutvar-curve = "mut_var.curve:run_cli"
 
 [project.urls]
 Documentation = "https://github.com/quattro/mut-var#readme"
@@ -106,3 +109,16 @@ order-by-type = false
 [tool.ruff.lint.per-file-ignores]
 # Tests can use magic values, assertions, and relative imports
 "tests/**/*" = ["PLR2004", "S101", "TID252"]
+
+[tool.pytest.ini_options]
+addopts = "-p no:capture"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/mut_var", "tests"]
+check_untyped_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+follow_imports = "skip"
+disable_error_code = ["arg-type", "index", "misc", "syntax", "valid-type", "var-annotated"]

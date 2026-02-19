@@ -204,3 +204,7 @@ The redesign keeps the existing CLI/user workflow but replaces internal module b
 - Targeted algorithmic changes are allowed only when they improve correctness/stability and are backed by regression tests and benchmark evidence.
 - Performance acceptance uses representative data and must report compile time and steady-state runtime separately.
 - Boundary validation is a first-class feature; deep numerics should never be the first place users discover malformed input.
+
+## Human Sign-Off Links
+- Benchmark representativeness: `docs/reviews/benchmark-representativeness.md`
+- Algorithm scope sign-off: `docs/reviews/algorithm-scope-signoff.md`
