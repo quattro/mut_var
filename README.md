@@ -123,6 +123,7 @@ This release is a breaking hardening release. Migration summary:
 
 Detailed breaking-change notes are in `CHANGELOG.md`.
 Human migration review artifact: `docs/reviews/migration-guide-signoff.md`.
+Supported import paths are listed in `docs/api.md`.
 
 ## Benchmark Procedure
 
@@ -158,6 +159,13 @@ Algorithm-scope constraint:
 
 - Changes must remain targeted to validation/orchestration/performance hardening.
 - Wholesale objective/model redesign is explicitly out of scope and requires separate design review.
+
+Release-readiness quick check:
+
+- `ruff check src/mut_var tests`
+- `mypy src/mut_var tests`
+- `pytest -p no:capture`
+- `python scripts/check_release_gate.py --report benchmarks/results/latest.json`
 
 ## License
 
