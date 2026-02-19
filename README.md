@@ -34,6 +34,20 @@ pip install mut-var
   - Invalid CLI arguments or invalid input data return a deterministic non-zero exit code.
   - Errors are emitted as actionable stderr messages.
 
+## Architecture Contract
+
+Canonical numerics entrypoints live under `mut_var.numerics`:
+
+- `mut_var.numerics.fit_baseline`
+- `mut_var.numerics.fit_refit_grid`
+- `mut_var.numerics.run_inference_pipeline`
+
+Core numerics APIs return `mut_var.Solution` with explicit `result` status and diagnostics in
+`stats`/`state`.
+
+`mut_var.cli` is the imperative shell (argument parsing, boundary validation, IO orchestration); it
+is not the numerics implementation module.
+
 ## License
 
 `mut-var` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.
