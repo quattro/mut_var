@@ -4,6 +4,7 @@ import pytest
 
 import mut_var
 import mut_var.cli as cli
+import mut_var.numerics as numerics
 
 from mut_var.adapters.tabular import build_maf_masks, to_inference_arrays
 from mut_var.contracts import RESULTS, Solution
@@ -124,3 +125,10 @@ def test_pipeline_returns_empty_subset_when_masks_select_nothing(sumstats_valid_
 def test_package_root_exports_canonical_pipeline_entrypoints():
     assert callable(mut_var.run_inference_pipeline)
     assert callable(mut_var.run_curve_pipeline)
+
+
+def test_numerics_public_surface_does_not_export_profiling_helpers():
+    assert callable(numerics.run_profiled_inference_pipeline)
+    assert not hasattr(numerics, "evaluate_performance_gate")
+    assert not hasattr(numerics, "profile_solution_runs")
+    assert not hasattr(numerics, "PerformanceGateResult")
