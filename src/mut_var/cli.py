@@ -5,6 +5,7 @@ import sys
 
 from typing import Sequence
 
+import jax
 import numpy as np
 
 from mut_var.adapters.tabular import build_maf_masks, payload_to_long_dataframe, to_inference_arrays
@@ -58,6 +59,7 @@ def _solution_exit_code(result: RESULTS) -> int:
 
 def run_infer_workflow(args: ap.Namespace) -> int:
     validate_maf_grid(args.lowest, args.highest, args.num_breaks)
+    jax.config.update("jax_enable_x64", True)
 
     df = read_sumstats(args.sumstats)
     validate_required_columns(df, args.af_col, args.beta_col, args.se_col)
