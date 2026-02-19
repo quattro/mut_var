@@ -8,7 +8,8 @@ import jax.random as rdm
 
 from jaxtyping import ArrayLike
 
-from mut_var.contracts import RESULTS, Solution
+from mut_var.contracts import Solution
+from mut_var.numerics._solver_utils import is_recoverable_result, merge_recoverable_results
 from mut_var.numerics.baseline import BaselineConfig, fit_baseline, Params
 from mut_var.numerics.profiling import profile_solution_runs
 from mut_var.numerics.refit import fit_refit_grid, RefitConfig
@@ -28,6 +29,23 @@ class InferenceConfig(NamedTuple):
     step_size: float = 0.01
     filter_threshold: float = 1e-8
     penalty: float = 1.0
+
+    def to_baseline_config(self) -> BaselineConfig:
+        return BaselineConfig(
+            num_clusters=self.num_clusters,
+            batch_size=self.batch_size,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            step_size=self.step_size,
+        )
+
+    def to_refit_config(self) -> RefitConfig:
+        return RefitConfig(
+            penalty=self.penalty,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            step_size=self.step_size,
+        )
 
 
 def _filter_components(params: Params, threshold: float) -> Params:
@@ -83,15 +101,9 @@ def run_inference_pipeline(
         beta_hat=beta_hat,
         s2=s2,
         key=rdm.PRNGKey(seed),
-        config=BaselineConfig(
-            num_clusters=config.num_clusters,
-            batch_size=config.batch_size,
-            max_iter=config.max_iter,
-            tol=config.tol,
-            step_size=config.step_size,
-        ),
+        config=config.to_baseline_config(),
     )
-    if baseline_solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
+    if not is_recoverable_result(baseline_solution.result):
         return baseline_solution
 
     filtered = _filter_components(baseline_solution.value, config.filter_threshold)
@@ -101,26 +113,17 @@ def run_inference_pipeline(
         s2=s2,
         maf_masks=maf_masks,
         init=filtered,
-        config=RefitConfig(
-            penalty=config.penalty,
-            max_iter=config.max_iter,
-            tol=config.tol,
-            step_size=config.step_size,
-        ),
+        config=config.to_refit_config(),
     )
-    if refit_solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
+    if not is_recoverable_result(refit_solution.result):
         return refit_solution
 
     models: list[Params] = refit_solution.value
     payload = _build_long_payload(models, maf_grid=maf_grid, af=arrays.af)
 
-    result = RESULTS.successful
-    if baseline_solution.result == RESULTS.max_steps_reached or refit_solution.result == RESULTS.max_steps_reached:
-        result = RESULTS.max_steps_reached
-
     return Solution(
         value=payload,
-        result=result,
+        result=merge_recoverable_results(baseline_solution.result, refit_solution.result),
         stats={
             "num_models": len(models),
             "num_components": int(models[0].pi.shape[0]),

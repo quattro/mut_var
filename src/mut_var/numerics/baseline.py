@@ -12,6 +12,14 @@ from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
+from mut_var.numerics._optimize import OptimizationLoopConfig, run_iterative_optimization
+from mut_var.numerics._solver_utils import (
+    exponential_map_simplex,
+    is_nonfinite,
+    MAX_BACKTRACK_STEPS,
+    should_backtrack,
+    simplex_tangent_direction,
+)
 
 
 class Params(NamedTuple):
@@ -107,30 +115,13 @@ def _exponential_map_normal(
     return mu, v
 
 
-def _exponential_map_simplex(
-    pi: Array,
-    direction: Array,
-    step_size: float,
-) -> Array:
-    s = jnp.sqrt(jnp.sum(direction**2) / pi)
-    c = jnp.cos(0.5 * step_size * s)
-    s2 = jnp.sin(0.5 * step_size * s)
-
-    phi = jnp.sqrt(pi)
-    step = (direction / (s * phi)) * s2
-    phi_new = phi * c + step
-    pi_new = phi_new**2
-
-    return pi_new / jnp.sum(pi_new)
-
-
-def _reimannian_step(
+def _riemannian_step(
     params: Params,
     direction: Params,
     step_size: float,
 ) -> Params:
-    tangent_pi = params.pi * (direction.pi - (direction.pi @ params.pi))
-    pi = _exponential_map_simplex(params.pi, tangent_pi, step_size)
+    tangent_pi = simplex_tangent_direction(params.pi, direction.pi)
+    pi = exponential_map_simplex(params.pi, tangent_pi, step_size)
 
     tangent_var_k = 2 * direction.var_k * params.var_k**2
     tangent_mu_k = direction.mu_k * params.var_k
@@ -225,7 +216,7 @@ def fit_baseline(
     else:
         max_val = 2 * jnp.sqrt(max_val)
 
-    if bool(~jnp.isfinite(max_val)) or bool(max_val <= 0.0):
+    if is_nonfinite(max_val) or bool(max_val <= 0.0):
         max_val = 8 * min_val
 
     params = Params(
@@ -239,60 +230,70 @@ def fit_baseline(
 
     vg_f = jax.jit(jax.value_and_grad(baseline_objective))
     obj = jax.jit(baseline_objective)
-
-    ologlike = -1e10
-    init_ss = config.step_size
     nobs = len(beta_hat_arr)
     using_sgd = config.batch_size < nobs
-    converged = False
-    epochs = 0
 
-    for epoch in range(config.max_iter):
-        epochs = epoch + 1
-        step_size = jnp.power(init_ss, epoch)
+    def _make_epoch_context(
+        _epoch: int,
+        _params: Params,
+        rng_key: rdm.PRNGKey | None,
+    ) -> tuple[tuple[ArrayLike, ArrayLike], rdm.PRNGKey | None]:
+        if not using_sgd:
+            return (beta_hat_arr, s2_arr), rng_key
+
+        if rng_key is None:
+            raise ValueError("sgd mode requires a PRNGKey")
+        next_key, sample_key = rdm.split(rng_key)
+        idxs = rdm.choice(sample_key, nobs, shape=(config.batch_size,), replace=False)
+        return (beta_hat_arr[idxs], s2_arr[idxs]), next_key
+
+    def _compute_direction(params_now: Params, epoch_context: tuple[ArrayLike, ArrayLike]) -> Params:
+        beta_now, s2_now = epoch_context
+        _, direction = vg_f(params_now, beta_now, s2_now, alpha)
         if using_sgd:
-            key, skey = rdm.split(key)
-            idxs = rdm.choice(skey, nobs, shape=(config.batch_size,), replace=False)
-            _, direction = vg_f(params, beta_hat_arr[idxs], s2_arr[idxs], alpha)
-            direction = jax.tree.map(lambda x: (nobs / config.batch_size) * x, direction)
-            params = _reimannian_step(params, direction, step_size)
-            nloglike = obj(params, beta_hat_arr[idxs], s2_arr[idxs], alpha)
-            diff = nloglike - ologlike
-            ologlike = nloglike
-        else:
-            _, direction = vg_f(params, beta_hat_arr, s2_arr, alpha)
-            for inner in range(20):
-                candidate = _reimannian_step(params, direction, step_size)
-                nloglike = obj(candidate, beta_hat_arr, s2_arr, alpha)
-                diff = nloglike - ologlike
-                if bool(diff < 0) or bool(jnp.isnan(nloglike)) or bool(jnp.isinf(nloglike)):
-                    step_size *= 0.5
-                else:
-                    params = candidate
-                    ologlike = nloglike
-                    break
+            scale = nobs / config.batch_size
+            direction = jax.tree.map(lambda x: scale * x, direction)
+        return direction
 
-        rel_diff = diff / (jnp.abs(ologlike) + 1e-12)
-        if bool(jnp.isnan(ologlike)) or bool(jnp.isinf(ologlike)):
-            return Solution(
-                value=params,
-                result=RESULTS.nonfinite_objective,
-                stats={"epoch": epochs, "objective": float(ologlike)},
-                state={"step_size": float(step_size)},
-            )
+    def _evaluate_objective(params_now: Params, epoch_context: tuple[ArrayLike, ArrayLike]) -> ArrayLike:
+        beta_now, s2_now = epoch_context
+        return obj(params_now, beta_now, s2_now, alpha)
 
-        if bool(jnp.abs(rel_diff) < config.tol):
-            converged = True
-            break
+    loop_solution = run_iterative_optimization(
+        init_params=params,
+        init_objective=jnp.asarray(-1e10),
+        key=key if using_sgd else None,
+        config=OptimizationLoopConfig(
+            max_iter=config.max_iter,
+            tol=config.tol,
+            step_size=config.step_size,
+            max_backtracks=1 if using_sgd else MAX_BACKTRACK_STEPS,
+        ),
+        make_epoch_context=_make_epoch_context,
+        compute_direction=_compute_direction,
+        propose_candidate=_riemannian_step,
+        evaluate_objective=_evaluate_objective,
+        step_size_for_epoch=lambda epoch, base_step: float(jnp.power(base_step, epoch)),
+        should_backtrack_step=(lambda _diff, _objective: False) if using_sgd else should_backtrack,
+        progress_metric=lambda diff, objective: diff / (jnp.abs(objective) + 1e-12),
+    )
 
-    result = RESULTS.successful if converged else RESULTS.max_steps_reached
+    if loop_solution.result == RESULTS.nonfinite_objective:
+        return Solution(
+            value=loop_solution.params,
+            result=RESULTS.nonfinite_objective,
+            stats={"epoch": loop_solution.epoch_count, "objective": float(loop_solution.objective)},
+            state={"step_size": float(loop_solution.step_size)},
+        )
+
+    result = loop_solution.result
     return Solution(
-        value=params,
+        value=loop_solution.params,
         result=result,
         stats={
-            "epoch_count": epochs,
-            "objective": float(ologlike),
-            "converged": converged,
+            "epoch_count": loop_solution.epoch_count,
+            "objective": float(loop_solution.objective),
+            "converged": loop_solution.converged,
             "num_observations": int(nobs),
         },
         state=None,

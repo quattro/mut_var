@@ -10,9 +10,17 @@ import jax.numpy as jnp
 
 from jax.scipy.special import xlogy
 from jax.scipy.stats import norm
-from jaxtyping import Array, ArrayLike
+from jaxtyping import ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
+from mut_var.numerics._optimize import OptimizationLoopConfig, run_iterative_optimization
+from mut_var.numerics._solver_utils import (
+    exponential_map_simplex,
+    is_recoverable_result,
+    MAX_BACKTRACK_STEPS,
+    should_backtrack,
+    simplex_tangent_direction,
+)
 from mut_var.numerics.baseline import Params
 
 
@@ -28,23 +36,6 @@ def _pdf(beta_hat, s2, mean, var_k):
 
 
 pdf = jax.vmap(_pdf, (None, None, 0, 0), 1)
-
-
-def _exponential_map_simplex(
-    pi: Array,
-    direction: Array,
-    step_size: float,
-) -> Array:
-    s = jnp.sqrt(jnp.sum(direction**2) / pi)
-    c = jnp.cos(0.5 * step_size * s)
-    s2 = jnp.sin(0.5 * step_size * s)
-
-    phi = jnp.sqrt(pi)
-    step = (direction / (s * phi)) * s2
-    phi_new = phi * c + step
-    pi_new = phi_new**2
-
-    return pi_new / jnp.sum(pi_new)
 
 
 def penalized_objective(
@@ -115,50 +106,78 @@ def _fit_single_refit(
 
     alpha = jnp.array([10.0] + (len(init.pi) - 1) * [1.0])
     params = Params(jnp.asarray(init.pi), jnp.asarray(init.mu_k), jnp.asarray(init.var_k))
+    epoch_context = (likelihoods_arr, weights_arr, alpha, init, config.penalty)
 
-    ologlike = -1e10
-    start = config.step_size
-    converged = False
-    epochs = 0
-    pi = params.pi
+    def _make_epoch_context(
+        _epoch: int,
+        _params: Params,
+        rng_key,
+    ):
+        return epoch_context, rng_key
 
-    for epoch in range(config.max_iter):
-        epochs = epoch + 1
-        _, direction = vg_f(params, likelihoods_arr, weights_arr, alpha, init, config.penalty)
-        step_size = start
-        for _ in range(20):
-            tangent_pi = params.pi * (direction.pi - (direction.pi @ params.pi))
-            pi = _exponential_map_simplex(params.pi, tangent_pi, step_size)
-            candidate = Params(pi, params.mu_k, params.var_k)
-            nloglike = obj(candidate, likelihoods_arr, weights_arr, alpha, init, config.penalty)
-            diff = nloglike - ologlike
-            if bool(diff < 0) or bool(jnp.isnan(nloglike)) or bool(jnp.isinf(nloglike)):
-                step_size *= 0.5
-            else:
-                params = candidate
-                ologlike = nloglike
-                break
+    def _compute_direction(params_now: Params, context) -> Params:
+        likelihoods_now, weights_now, alpha_now, init_now, penalty_now = context
+        _, direction = vg_f(
+            params_now,
+            likelihoods_now,
+            weights_now,
+            alpha_now,
+            init_now,
+            penalty_now,
+        )
+        return direction
 
-        if bool(jnp.isnan(ologlike)) or bool(jnp.isinf(ologlike)):
-            return Solution(
-                value=params,
-                result=RESULTS.nonfinite_objective,
-                stats={"epoch": epochs, "objective": float(ologlike)},
-                state={"step_size": float(step_size)},
-            )
+    def _propose_candidate(params_now: Params, direction: Params, step_size: float) -> Params:
+        tangent_pi = simplex_tangent_direction(params_now.pi, direction.pi)
+        pi = exponential_map_simplex(params_now.pi, tangent_pi, step_size)
+        return Params(pi, params_now.mu_k, params_now.var_k)
 
-        if bool(jnp.abs(diff) < config.tol):
-            converged = True
-            break
+    def _evaluate_objective(params_now: Params, context) -> ArrayLike:
+        likelihoods_now, weights_now, alpha_now, init_now, penalty_now = context
+        return obj(
+            params_now,
+            likelihoods_now,
+            weights_now,
+            alpha_now,
+            init_now,
+            penalty_now,
+        )
 
-    result = RESULTS.successful if converged else RESULTS.max_steps_reached
+    loop_solution = run_iterative_optimization(
+        init_params=params,
+        init_objective=jnp.asarray(-1e10),
+        key=None,
+        config=OptimizationLoopConfig(
+            max_iter=config.max_iter,
+            tol=config.tol,
+            step_size=config.step_size,
+            max_backtracks=MAX_BACKTRACK_STEPS,
+        ),
+        make_epoch_context=_make_epoch_context,
+        compute_direction=_compute_direction,
+        propose_candidate=_propose_candidate,
+        evaluate_objective=_evaluate_objective,
+        step_size_for_epoch=lambda _epoch, base_step: base_step,
+        should_backtrack_step=should_backtrack,
+        progress_metric=lambda diff, _objective: diff,
+    )
+
+    if loop_solution.result == RESULTS.nonfinite_objective:
+        return Solution(
+            value=loop_solution.params,
+            result=RESULTS.nonfinite_objective,
+            stats={"epoch": loop_solution.epoch_count, "objective": float(loop_solution.objective)},
+            state={"step_size": float(loop_solution.step_size)},
+        )
+
+    result = loop_solution.result
     return Solution(
-        value=Params(pi, init.mu_k, init.var_k),
+        value=loop_solution.params,
         result=result,
         stats={
-            "epoch_count": epochs,
-            "objective": float(ologlike),
-            "converged": converged,
+            "epoch_count": loop_solution.epoch_count,
+            "objective": float(loop_solution.objective),
+            "converged": loop_solution.converged,
             "n_obs_used": int(jnp.sum(weights_arr > 0.0)),
             "likelihood_shape": tuple(int(x) for x in likelihoods_arr.shape),
         },
@@ -221,7 +240,7 @@ def fit_refit_grid(
         elapsed = perf_counter() - start
         total_elapsed += elapsed
 
-        if fit_solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
+        if not is_recoverable_result(fit_solution.result):
             return Solution(
                 value=models,
                 result=fit_solution.result,
