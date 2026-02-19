@@ -1,6 +1,6 @@
 # mut_var
 
-Last verified: 2026-02-19
+Last verified: 2026-02-18
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.
@@ -16,6 +16,8 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Pipeline/orchestration APIs accept validated dataframe or array-like inputs and return dataframe outputs for downstream writing/processing.
   - Numerics APIs return `Solution` objects and use `Solution.result` as the canonical status signal.
   - Contracts above numerics do not expose `Solution`; they normalize outputs to tabular/dataframe forms.
+  - Baseline/refit numerics run through Optimistix-based optimization with full-batch objective updates only.
+  - Numerics objective wrappers use `equinox.filter_jit` for JIT staging.
   - Orchestration/input errors use built-in exception types (`ValueError`, `FileNotFoundError`, `RuntimeError`) instead of custom error hierarchies.
   - High-level workflow paths emit step-level progress logs (load/validate/run/prepare/write) through logging, not ad-hoc prints.
   - Curve fit-only mode (`generate_plots=False` / `mutvar curve --fit-only`) performs no plotting side effects.
@@ -30,11 +32,14 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - **Boundary**:
   - `mut_var.cli` is imperative-shell orchestration; do not treat it as numerics API surface.
   - Canonical numerics implementations live under `src/mut_var/numerics`.
+  - Numerics-specific contracts are documented in `src/mut_var/numerics/AGENTS.md`.
   - Prefer package-root imports over reaching into adapter internals.
 
 ## Key Decisions
 - Public API is intentionally centralized in `src/mut_var/__init__.py` to keep import contracts stable.
 - Status-bearing `Solution` objects are reserved for numerics-facing contracts.
+- Numerics optimization is standardized on Optimistix with custom manifold descent modules; legacy native loop orchestration was removed.
+- Full-batch-only optimization is the canonical contract; `batch_size` controls were removed from public inference/baseline configs and CLI.
 - Contract enums/modules use Equinox primitives (`equinox.internal.Enumeration`, `equinox.Module`) instead of stdlib `Enum`/`dataclass`.
 - Pipeline-facing APIs normalize successful outputs to `polars.DataFrame`.
 - Plot generation is isolated from curve-fitting numerics so fit outputs remain unchanged by plotting.
@@ -43,6 +48,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `RESULTS` status codes are explicit and stable (`successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, `max_steps_reached`).
 - `Solution` carries `value`, `result`, and optional `stats`/`state`.
 - Data-structure rule: data-only contracts use `NamedTuple`; behavior-bearing contracts use `equinox.Module`.
+- `BaselineConfig` and `InferenceConfig` no longer include a `batch_size` field.
 - Canonical release gates remain aligned between local and CI:
   - `ruff check src/mut_var tests`
   - `mypy src/mut_var tests`
@@ -67,4 +73,5 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 ## Gotchas
 - Importing internals from `mut_var.cli` is unsupported; use package-root APIs.
 - Treat `Solution.result` (not presence of `value`) as the success signal for numerics APIs.
+- `mutvar infer` no longer accepts `--batch-size`; numerics are full-batch by contract.
 - Keep algorithm changes targeted; broad model redesign requires separate design review.
