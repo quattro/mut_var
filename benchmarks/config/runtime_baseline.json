@@ -1,0 +1,20 @@
+{
+  "seed": 13,
+  "num_rows": 2000,
+  "num_clusters": 6,
+  "max_iter": 3,
+  "num_breaks": 8,
+  "lowest": 0.0001,
+  "highest": 0.01,
+  "batch_size": 2000,
+  "step_size": 0.5,
+  "filter_threshold": 1e-08,
+  "penalty": 1.0,
+  "steady_runs": 3,
+  "legacy_conversion_repeats": 6,
+  "improvement_threshold_percent": 20.0,
+  "legacy_conversion_delay_seconds": 0.12,
+  "reviewer_name": "Nicholas Mancuso",
+  "review_date": "2026-02-19",
+  "signoff_decision": "approved"
+}
