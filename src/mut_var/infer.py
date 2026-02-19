@@ -8,6 +8,7 @@ from collections.abc import Callable
 # Reason: preserves compatibility while consolidating numerics and orchestration entrypoints.
 from typing import Any, Mapping, NamedTuple, TYPE_CHECKING
 
+import jax.debug as jdb
 import jax.numpy as jnp
 import jax.random as rdm
 import polars as pl
@@ -124,18 +125,30 @@ def _solver_debug_callback(
     stage: str,
 ) -> Callable[[ArrayLike, ArrayLike, ArrayLike], None] | None:
     if not workflow_log.isEnabledFor(logging.DEBUG):
-        return None
+        return False
+    """
+    Returns a Callable[..., None] that can be called inside JIT code
+    and logs its keyword arguments via jax.debug.callback.
+    """
 
-    def _verbose_callback(step_index: ArrayLike, loss: ArrayLike, grad_norm: ArrayLike) -> None:
-        workflow_log.debug(
-            "inference pipeline: %s solver step=%d loss=%.6g grad_norm=%.6g",
-            stage,
-            int(step_index),
-            float(loss),
-            float(grad_norm),
-        )
+    def _verbose(**kwargs: Any) -> None:
+        if not kwargs:
+            return
 
-    return _verbose_callback
+        # We build format + args outside the callback so only
+        # concrete runtime values are transferred.
+        items = list(kwargs.items())
+        fmt = ", ".join(f"{k}: %s" for k, _ in items)
+        fmt = f"{stage} | {fmt}"
+        args = tuple(v for _, v in items)
+
+        def _log_callback(*cb_args):
+            workflow_log.debug(fmt, *cb_args)
+
+        # Pass only runtime values positionally
+        jdb.callback(_log_callback, *args)
+
+    return _verbose
 
 
 def run_inference_pipeline(
@@ -210,7 +223,7 @@ def run_inference_pipeline(
         s2=s2,
         key=rdm.PRNGKey(seed),
         config=baseline_config,
-        verbose_callback=_solver_debug_callback(workflow_log, "baseline"),
+        verbose=_solver_debug_callback(workflow_log, "baseline"),
     )
     workflow_log.info("inference pipeline: baseline fit completed with result '%s'", RESULTS[baseline_solution.result])
 
@@ -227,7 +240,7 @@ def run_inference_pipeline(
             maf_masks=maf_masks,
             init=filtered,
             config=inference_config.to_refit_config(),
-            verbose_callback=_solver_debug_callback(workflow_log, "refit"),
+            verbose=_solver_debug_callback(workflow_log, "refit"),
         )
         workflow_log.info("inference pipeline: refit grid completed with result '%s'", RESULTS[refit_solution.result])
 

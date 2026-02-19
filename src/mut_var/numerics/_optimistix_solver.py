@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # pattern: Functional Core
 from collections.abc import Callable
-from typing import Any, cast, Generic, TypeAlias, TypeVar
+from typing import Any, cast, Generic, TypeVar
 
 import equinox as eqx
 import jax
@@ -15,7 +15,6 @@ from jaxtyping import Array, ArrayLike, PyTree
 from mut_var.contracts import RESULTS
 
 Y = TypeVar("Y")
-VerboseCallback: TypeAlias = Callable[[ArrayLike, ArrayLike, ArrayLike], None]
 
 
 class MutVarDescentState(eqx.Module, Generic[Y]):
@@ -28,21 +27,50 @@ def _ascent_direction(grad: Y) -> Y:
     return jax.tree.map(lambda leaf: -leaf, grad)
 
 
+# pulled from optimistix...
+def default_verbose(verbose: bool | Callable[..., None]) -> Callable[..., None]:
+    if callable(verbose):
+        return verbose
+    elif verbose is True:
+        return _default_verbose
+    elif verbose is False:
+        return _default_no_verbose
+    else:
+        raise ValueError(
+            f"Unrecognized `verbose` of type {type(verbose)}. Accepted types are " "either booleans or callables."
+        )
+
+
+def _default_verbose(**kwargs: tuple[str, Any]) -> None:
+    string_pieces = []
+    arg_pieces = []
+    for name, value in kwargs.values():
+        string_pieces.append(name + ": {}")
+        arg_pieces.append(value)
+    if len(string_pieces) > 0:
+        string = ", ".join(string_pieces)
+        jax.debug.print(string, *arg_pieces)
+
+
+def _default_no_verbose(**kwargs):
+    del kwargs
+
+
 class MutVarDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, MutVarDescentState[Y]]):
     step_update: Callable[[Y, Y, ArrayLike], Y] = eqx.field(static=True)
     direction_transform: Callable[[Y], Y] = eqx.field(static=True)
-    verbose_callback: VerboseCallback | None = eqx.field(static=True)
+    verbose: Callable[..., None] = eqx.field(static=True)
 
     def __init__(
         self,
         *,
         step_update: Callable[[Y, Y, ArrayLike], Y],
         direction_transform: Callable[[Y], Y] = _ascent_direction,
-        verbose_callback: VerboseCallback | None = None,
+        verbose: bool | Callable[..., None] = False,
     ):
         self.step_update = step_update
         self.direction_transform = direction_transform
-        self.verbose_callback = verbose_callback
+        self.verbose = default_verbose(verbose)
 
     def init(
         self,
@@ -65,14 +93,16 @@ class MutVarDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, MutVarDe
             raise ValueError("mut_var optimistix descent requires gradient information")
         direction = self.direction_transform(f_info.grad)
         step_index = state.step_index + jnp.asarray(1, dtype=jnp.int32)
-        if self.verbose_callback is not None:
-            grad_norm_sq = jtu.tree_reduce(
-                lambda acc, leaf: acc + jnp.sum(jnp.square(jnp.asarray(leaf, dtype=jnp.float64))),
-                f_info.grad,
-                initializer=jnp.asarray(0.0, dtype=jnp.float64),
-            )
-            grad_norm = jnp.sqrt(grad_norm_sq)
-            jax.debug.callback(self.verbose_callback, step_index, f_info.f, grad_norm)
+        grad_norm_sq = jtu.tree_reduce(
+            lambda acc, leaf: acc + jnp.sum(jnp.square(jnp.asarray(leaf, dtype=jnp.float64))),
+            f_info.grad,
+            initializer=jnp.asarray(0.0, dtype=jnp.float64),
+        )
+        grad_norm = jnp.sqrt(grad_norm_sq)
+        self.verbose(
+            num_steps=("Step", step_index),
+            grad_norm=("||grad||", grad_norm),
+        )
         return MutVarDescentState(params=params, direction=direction, step_index=step_index)
 
     def step(
@@ -102,12 +132,12 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
         atol: float,
         norm: Callable[[PyTree[Array]], Array] = optx.max_norm,
         search: optx.AbstractSearch[Y, optx.FunctionInfo.EvalGrad, optx.FunctionInfo.Eval, Any] | None = None,
-        verbose_callback: VerboseCallback | None = None,
+        verbose: bool | Callable[..., None] = False,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = MutVarDescent(step_update=step_update, verbose_callback=verbose_callback)
+        self.descent = MutVarDescent(step_update=step_update, verbose=verbose)
         self.search = search if search is not None else optx.BacktrackingArmijo(step_init=step_size)
 
 

@@ -95,7 +95,7 @@ def test_fit_single_refit_returns_controlled_failure_for_nonfinite_objective():
         init=init,
         config=RefitConfig(max_iter=1, step_size=0.75, tol=1e-8),
         obj=_nonfinite_obj,
-        verbose_callback=None,
+        verbose=False,
     )
 
     assert solution.result == RESULTS.nonfinite_objective
