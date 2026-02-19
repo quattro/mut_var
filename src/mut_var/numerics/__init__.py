@@ -1,6 +1,6 @@
 from .baseline import BaselineConfig, fit_baseline, Params
 from .curve_fit import curve, fit_curve
-from .pipeline import InferenceArrays, InferenceConfig, run_inference_pipeline, run_profiled_inference_pipeline
+from .pipeline import InferenceArrays, InferenceConfig, run_inference_pipeline
 from .refit import fit_refit_grid, RefitConfig
 
 __all__ = [
@@ -14,5 +14,4 @@ __all__ = [
     "fit_curve",
     "fit_refit_grid",
     "run_inference_pipeline",
-    "run_profiled_inference_pipeline",
 ]

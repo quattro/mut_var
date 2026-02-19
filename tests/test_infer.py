@@ -128,7 +128,7 @@ def test_package_root_exports_canonical_pipeline_entrypoints():
 
 
 def test_numerics_public_surface_does_not_export_profiling_helpers():
-    assert callable(numerics.run_profiled_inference_pipeline)
+    assert not hasattr(numerics, "run_profiled_inference_pipeline")
     assert not hasattr(numerics, "evaluate_performance_gate")
     assert not hasattr(numerics, "profile_solution_runs")
     assert not hasattr(numerics, "PerformanceGateResult")

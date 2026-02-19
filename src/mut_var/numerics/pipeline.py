@@ -11,7 +11,6 @@ from jaxtyping import ArrayLike
 from mut_var.contracts import Solution
 from mut_var.numerics._solver_utils import is_recoverable_result, merge_recoverable_results
 from mut_var.numerics.baseline import BaselineConfig, fit_baseline, Params
-from mut_var.numerics.profiling import profile_solution_runs
 from mut_var.numerics.refit import fit_refit_grid, RefitConfig
 
 
@@ -143,25 +142,4 @@ def run_inference_pipeline(
             "refit": refit_solution.stats,
         },
         state=None,
-    )
-
-
-def run_profiled_inference_pipeline(
-    arrays: InferenceArrays,
-    maf_grid: ArrayLike,
-    maf_masks: ArrayLike,
-    seed: int,
-    config: InferenceConfig,
-    steady_runs: int = 3,
-) -> dict[str, object]:
-    r"""Profile compile and steady-state timings for inference numerics pipeline."""
-    return profile_solution_runs(
-        lambda: run_inference_pipeline(
-            arrays=arrays,
-            maf_grid=maf_grid,
-            maf_masks=maf_masks,
-            seed=seed,
-            config=config,
-        ),
-        steady_runs=steady_runs,
     )

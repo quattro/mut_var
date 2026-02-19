@@ -1,6 +1,6 @@
 # Numerics Domain
 
-Last verified: 2026-02-18
+Last verified: 2026-02-19
 
 ## Purpose
 Provide array-only numerical kernels for mutation-variance estimation with explicit solver status channels that remain stable under JAX transforms.
@@ -11,7 +11,6 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - `fit_refit_grid(beta_hat, s2, maf_masks, init, config) -> Solution`
   - `fit_curve(maf, value) -> Solution`
   - `run_inference_pipeline(arrays, maf_grid, maf_masks, seed, config) -> Solution`
-  - `run_profiled_inference_pipeline(...) -> dict[str, object]`
 - **Guarantees**:
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths.
   - Baseline/refit optimization is full-batch and routed through Optimistix (`MutVarSolver` with backtracking line search).
@@ -24,7 +23,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 
 ## Dependencies
 - **Uses**: `jax`, `equinox`, `optimistix`, `jaxtyping`, `mut_var.contracts`.
-- **Used by**: `src/mut_var/infer.py`, `src/mut_var/curve.py`, and profiling/benchmark adapters.
+- **Used by**: `src/mut_var/infer.py` and `src/mut_var/curve.py`.
 - **Boundary**:
   - No file I/O, CLI parsing, logging, or dataframe conversion in this domain.
   - User-facing validation belongs at higher-level adapters before numerics execution.
@@ -49,6 +48,5 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
 
 ## Gotchas
-- `run_profiled_inference_pipeline` returns profiling metadata, not a `Solution`.
 - `RESULTS.max_steps_reached` is intentionally treated as recoverable by numerics pipeline utilities.
-- Changing `Solution.stats` keys can break profiling/benchmark assertions that inspect diagnostics.
+- Changing `Solution.stats` keys can break regression assertions that inspect diagnostics.
