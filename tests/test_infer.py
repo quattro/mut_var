@@ -1,0 +1,66 @@
+import numpy as np
+import polars as pl
+
+import mut_var.cli as cli
+
+from mut_var.adapters.tabular import build_maf_masks, to_inference_arrays
+from mut_var.contracts import RESULTS, Solution
+from mut_var.numerics.pipeline import InferenceArrays, InferenceConfig, run_inference_pipeline
+
+
+def _example_sumstats() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "effect_allele_frequency": [0.10, 0.20, 0.30, 0.40, 0.45, 0.12, 0.22, 0.33],
+            "beta": [0.05, -0.02, 0.01, 0.03, -0.01, 0.02, -0.03, 0.04],
+            "standard_error": [0.05, 0.04, 0.03, 0.04, 0.03, 0.05, 0.04, 0.03],
+        }
+    )
+
+
+def test_run_inference_pipeline_returns_solution_with_status_and_stats():
+    df = _example_sumstats()
+    arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
+    maf_grid = np.array([1e-3, 5e-3])
+    maf_masks = build_maf_masks(arrays.af, maf_grid)
+
+    solution = run_inference_pipeline(
+        arrays=arrays,
+        maf_grid=maf_grid,
+        maf_masks=maf_masks,
+        seed=0,
+        config=InferenceConfig(num_clusters=3, max_iter=5, batch_size=8, step_size=0.5),
+    )
+
+    assert isinstance(solution, Solution)
+    assert solution.result in {RESULTS.successful, RESULTS.max_steps_reached}
+    assert isinstance(solution.stats, dict)
+    assert "num_models" in solution.stats
+    assert solution.value is not None
+    assert set(solution.value) == {"mu0", "var0", "maf", "name", "value"}
+
+
+def test_orchestration_is_separate_from_cli_internals():
+    assert callable(run_inference_pipeline)
+    assert not hasattr(cli, "penalized_objective")
+    assert not hasattr(cli, "fit_mixture")
+
+
+def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays():
+    df = _example_sumstats()
+    arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
+    assert not hasattr(arrays.beta_hat, "columns")
+
+    bad_arrays = InferenceArrays(af=df, beta_hat=df, s2=df)
+    maf_grid = np.array([1e-3, 5e-3])
+    maf_masks = np.array([[True, True, True, True, True, True, True, True]])
+
+    solution = run_inference_pipeline(
+        arrays=bad_arrays,
+        maf_grid=maf_grid,
+        maf_masks=maf_masks,
+        seed=0,
+        config=InferenceConfig(num_clusters=3, max_iter=2, batch_size=8),
+    )
+
+    assert solution.result == RESULTS.invalid_input
