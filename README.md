@@ -124,6 +124,7 @@ This release is a breaking hardening release. Migration summary:
 Detailed breaking-change notes are in `CHANGELOG.md`.
 Human migration review artifact: `docs/reviews/migration-guide-signoff.md`.
 Supported import paths are listed in `docs/api.md`.
+Migration-guide sign-off decision: `approved (2026-02-19)`.
 
 ## Benchmark Procedure
 

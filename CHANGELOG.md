@@ -39,3 +39,4 @@ Release is blocked unless benchmark evidence is present and steady-state improve
 See `README.md` migration and contract sections for user-facing guidance.
 Human migration review artifact: `docs/reviews/migration-guide-signoff.md`.
 Canonical import and API surface: `docs/api.md`.
+Migration-guide sign-off decision: approved on 2026-02-19.
