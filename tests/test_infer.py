@@ -47,6 +47,23 @@ def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
     assert any("building numerics payload" in message for message in messages)
 
 
+def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, caplog):
+    caplog.set_level(logging.DEBUG, logger="mut_var.infer")
+
+    run_inference_dataframe_pipeline(
+        sumstats_valid_df,
+        seed=0,
+        lowest=1e-3,
+        highest=5e-3,
+        num_breaks=2,
+        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+    )
+
+    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
+    assert any("baseline solver step=" in message for message in messages)
+    assert any("refit solver step=" in message for message in messages)
+
+
 def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_df, monkeypatch):
     import mut_var.numerics.baseline as baseline_module
 

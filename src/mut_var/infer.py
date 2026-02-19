@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-# pattern: Mixed (unavoidable)
-# Reason: preserves compatibility while consolidating numerics and orchestration entrypoints.
 import logging
 
+from collections.abc import Callable
+
+# pattern: Mixed (unavoidable)
+# Reason: preserves compatibility while consolidating numerics and orchestration entrypoints.
 from typing import Any, Mapping, NamedTuple, TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -117,6 +119,25 @@ def _payload_from_solution(solution: Solution) -> Mapping[str, object]:
     return solution.value
 
 
+def _solver_debug_callback(
+    workflow_log: logging.Logger,
+    stage: str,
+) -> Callable[[ArrayLike, ArrayLike, ArrayLike], None] | None:
+    if not workflow_log.isEnabledFor(logging.DEBUG):
+        return None
+
+    def _verbose_callback(step_index: ArrayLike, loss: ArrayLike, grad_norm: ArrayLike) -> None:
+        workflow_log.debug(
+            "inference pipeline: %s solver step=%d loss=%.6g grad_norm=%.6g",
+            stage,
+            int(step_index),
+            float(loss),
+            float(grad_norm),
+        )
+
+    return _verbose_callback
+
+
 def run_inference_pipeline(
     df: pl.DataFrame,
     *,
@@ -188,6 +209,7 @@ def run_inference_pipeline(
         s2=s2,
         key=rdm.PRNGKey(seed),
         config=inference_config.to_baseline_config(),
+        verbose_callback=_solver_debug_callback(workflow_log, "baseline"),
     )
     workflow_log.info("inference pipeline: baseline fit completed with result '%s'", RESULTS[baseline_solution.result])
 
@@ -204,6 +226,7 @@ def run_inference_pipeline(
             maf_masks=maf_masks,
             init=filtered,
             config=inference_config.to_refit_config(),
+            verbose_callback=_solver_debug_callback(workflow_log, "refit"),
         )
         workflow_log.info("inference pipeline: refit grid completed with result '%s'", RESULTS[refit_solution.result])
 

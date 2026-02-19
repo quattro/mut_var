@@ -15,7 +15,7 @@ from jax.scipy.stats import norm
 from jaxtyping import ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
+from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver, VerboseCallback
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_recoverable_result,
@@ -64,6 +64,7 @@ def _fit_single_refit(
     init: Params,
     config: RefitConfig,
     obj,
+    verbose_callback: VerboseCallback | None,
 ) -> Solution:
     likelihoods_arr = jnp.asarray(likelihoods)
     weights_arr = jnp.asarray(weights)
@@ -109,6 +110,7 @@ def _fit_single_refit(
         init=params,
         objective=obj,
         config=config,
+        verbose_callback=verbose_callback,
     )
 
 
@@ -120,6 +122,7 @@ def _fit_single_refit_optimistix(
     init: Params,
     objective,
     config: RefitConfig,
+    verbose_callback: VerboseCallback | None,
 ) -> Solution:
     def _propose_candidate(params_now: Params, direction: Params, step_size: ArrayLike) -> Params:
         tangent_pi = simplex_tangent_direction(params_now.pi, direction.pi)
@@ -134,6 +137,7 @@ def _fit_single_refit_optimistix(
         step_size=config.step_size,
         rtol=config.tol,
         atol=config.tol,
+        verbose_callback=verbose_callback,
     )
     optx_solution = optx.minimise(
         fn=_neg_objective,
@@ -177,6 +181,7 @@ def fit_refit_grid(
     maf_masks: ArrayLike,
     init: Params,
     config: RefitConfig,
+    verbose_callback: VerboseCallback | None = None,
 ) -> Solution:
     r"""Sequentially refit mixture weights across MAF-threshold masks.
 
@@ -239,7 +244,7 @@ def fit_refit_grid(
         likelihoods = pdf(beta_hat_arr, s2_arr, mu_k, var_k)
 
         start = perf_counter()
-        fit_solution = _fit_single_refit(likelihoods, weights, models[-1], config, obj)
+        fit_solution = _fit_single_refit(likelihoods, weights, models[-1], config, obj, verbose_callback)
         elapsed = perf_counter() - start
         total_elapsed += elapsed
 

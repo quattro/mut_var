@@ -14,7 +14,7 @@ from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
+from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver, VerboseCallback
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_nonfinite,
@@ -207,6 +207,7 @@ def fit_baseline(
     s2: ArrayLike,
     key: rdm.PRNGKey,
     config: BaselineConfig,
+    verbose_callback: VerboseCallback | None = None,
 ) -> Solution:
     r"""Fit baseline mixture parameters with Optimistix full-batch descent.
 
@@ -260,6 +261,7 @@ def fit_baseline(
         objective=obj,
         nobs=nobs,
         config=config,
+        verbose_callback=verbose_callback,
     )
 
 
@@ -272,6 +274,7 @@ def _fit_baseline_optimistix(
     objective,
     nobs: int,
     config: BaselineConfig,
+    verbose_callback: VerboseCallback | None,
 ) -> Solution:
     def _neg_objective(params_now: Params, _unused: Any) -> ArrayLike:
         return -objective(params_now, beta_hat, s2, alpha)
@@ -281,6 +284,7 @@ def _fit_baseline_optimistix(
         step_size=config.step_size,
         rtol=config.tol,
         atol=config.tol,
+        verbose_callback=verbose_callback,
     )
     optx_solution = optx.minimise(
         fn=_neg_objective,

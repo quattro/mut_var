@@ -2,11 +2,12 @@ from __future__ import annotations
 
 # pattern: Functional Core
 from collections.abc import Callable
-from typing import Any, cast, Generic, TypeVar
+from typing import Any, cast, Generic, TypeAlias, TypeVar
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import optimistix as optx
 
 from jaxtyping import Array, ArrayLike, PyTree
@@ -14,11 +15,13 @@ from jaxtyping import Array, ArrayLike, PyTree
 from mut_var.contracts import RESULTS
 
 Y = TypeVar("Y")
+VerboseCallback: TypeAlias = Callable[[ArrayLike, ArrayLike, ArrayLike], None]
 
 
 class MutVarDescentState(eqx.Module, Generic[Y]):
     params: Y
     direction: Y
+    step_index: Array
 
 
 def _ascent_direction(grad: Y) -> Y:
@@ -28,15 +31,18 @@ def _ascent_direction(grad: Y) -> Y:
 class MutVarDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, MutVarDescentState[Y]]):
     step_update: Callable[[Y, Y, ArrayLike], Y] = eqx.field(static=True)
     direction_transform: Callable[[Y], Y] = eqx.field(static=True)
+    verbose_callback: VerboseCallback | None = eqx.field(static=True)
 
     def __init__(
         self,
         *,
         step_update: Callable[[Y, Y, ArrayLike], Y],
         direction_transform: Callable[[Y], Y] = _ascent_direction,
+        verbose_callback: VerboseCallback | None = None,
     ):
         self.step_update = step_update
         self.direction_transform = direction_transform
+        self.verbose_callback = verbose_callback
 
     def init(
         self,
@@ -46,7 +52,7 @@ class MutVarDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, MutVarDe
         r"""Initialize descent state with zero direction matching parameter structure."""
         del f_info_struct
         zeros = jax.tree.map(lambda leaf: jnp.zeros_like(leaf), params)
-        return MutVarDescentState(params=params, direction=zeros)
+        return MutVarDescentState(params=params, direction=zeros, step_index=jnp.asarray(0, dtype=jnp.int32))
 
     def query(
         self,
@@ -55,11 +61,19 @@ class MutVarDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, MutVarDe
         state: MutVarDescentState[Y],
     ) -> MutVarDescentState[Y]:
         r"""Update descent direction from current gradient information."""
-        del state
         if not isinstance(f_info, optx.FunctionInfo.EvalGrad):
             raise ValueError("mut_var optimistix descent requires gradient information")
         direction = self.direction_transform(f_info.grad)
-        return MutVarDescentState(params=params, direction=direction)
+        step_index = state.step_index + jnp.asarray(1, dtype=jnp.int32)
+        if self.verbose_callback is not None:
+            grad_norm_sq = jtu.tree_reduce(
+                lambda acc, leaf: acc + jnp.sum(jnp.square(jnp.asarray(leaf, dtype=jnp.float64))),
+                f_info.grad,
+                initializer=jnp.asarray(0.0, dtype=jnp.float64),
+            )
+            grad_norm = jnp.sqrt(grad_norm_sq)
+            jax.debug.callback(self.verbose_callback, step_index, f_info.f, grad_norm)
+        return MutVarDescentState(params=params, direction=direction, step_index=step_index)
 
     def step(
         self,
@@ -88,11 +102,12 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
         atol: float,
         norm: Callable[[PyTree[Array]], Array] = optx.max_norm,
         search: optx.AbstractSearch[Y, optx.FunctionInfo.EvalGrad, optx.FunctionInfo.Eval, Any] | None = None,
+        verbose_callback: VerboseCallback | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = MutVarDescent(step_update=step_update)
+        self.descent = MutVarDescent(step_update=step_update, verbose_callback=verbose_callback)
         self.search = search if search is not None else optx.BacktrackingArmijo(step_init=step_size)
 
 
