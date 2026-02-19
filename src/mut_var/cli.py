@@ -14,6 +14,7 @@ from mut_var.infer import InferenceConfig, run_inference_pipeline
 from mut_var.io import read_sumstats
 
 jax.config.update("jax_enable_x64", True)
+FMT = ap.ArgumentDefaultsHelpFormatter
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -45,48 +46,129 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser]) -> None:
-    infer = subparsers.add_parser("infer", help="Run inference pipeline.")
+    infer = subparsers.add_parser(
+        "infer",
+        formatter_class=FMT,
+        help="Run inference pipeline.",
+    )
     io_group = infer.add_argument_group("Input/Output")
-    io_group.add_argument("sumstats")
-    io_group.add_argument("-o", "--output", type=ap.FileType("w"), default=sys.stdout)
+    io_group.add_argument("sumstats", help="Input summary statistics TSV path.")
+    io_group.add_argument(
+        "-o",
+        "--output",
+        type=ap.FileType("w"),
+        default=sys.stdout,
+        help="Output destination for inference TSV results.",
+    )
 
     data_group = infer.add_argument_group("Input Columns")
-    data_group.add_argument("--af-col", type=str, default="effect_allele_frequency")
-    data_group.add_argument("--beta-col", type=str, default="beta")
-    data_group.add_argument("--se-col", type=str, default="standard_error")
+    data_group.add_argument(
+        "--af-col",
+        type=str,
+        default="effect_allele_frequency",
+        help="Column name for effect allele frequency values.",
+    )
+    data_group.add_argument(
+        "--beta-col",
+        type=str,
+        default="beta",
+        help="Column name for effect size estimates.",
+    )
+    data_group.add_argument(
+        "--se-col",
+        type=str,
+        default="standard_error",
+        help="Column name for standard errors.",
+    )
 
     model_group = infer.add_argument_group("Model Controls")
-    model_group.add_argument("-t", "--maf-threshold", type=float, default=0.01)
-    model_group.add_argument("-k", "--num-clusters", type=int, default=30)
-    model_group.add_argument("-m", "--max-iter", type=int, default=100)
-    model_group.add_argument("-r", "--step-size", type=float, default=0.01)
-    model_group.add_argument("-s", "--seed", type=int, default=0)
-    model_group.add_argument("-f", "--filter", type=float, default=1e-8)
-    model_group.add_argument("--penalty", type=float, default=1.0)
+    model_group.add_argument(
+        "-t",
+        "--maf-threshold",
+        type=float,
+        default=0.01,
+        help="Reserved MAF threshold parameter for model controls.",
+    )
+    model_group.add_argument(
+        "-k",
+        "--num-clusters",
+        type=int,
+        default=30,
+        help="Number of baseline mixture components.",
+    )
+    model_group.add_argument(
+        "-m",
+        "--max-iter",
+        type=int,
+        default=100,
+        help="Maximum optimizer iterations.",
+    )
+    model_group.add_argument(
+        "-r",
+        "--step-size",
+        type=float,
+        default=0.01,
+        help="Optimization step size.",
+    )
+    model_group.add_argument("-s", "--seed", type=int, default=0, help="PRNG seed.")
+    model_group.add_argument(
+        "-f",
+        "--filter",
+        type=float,
+        default=1e-8,
+        help="Weight threshold for post-fit component filtering.",
+    )
+    model_group.add_argument(
+        "--penalty",
+        type=float,
+        default=1.0,
+        help="Penalty weight for objective regularization.",
+    )
 
     grid_group = infer.add_argument_group("MAF Grid")
-    grid_group.add_argument("--lowest", type=float, default=1e-5)
-    grid_group.add_argument("--highest", type=float, default=1e-2)
-    grid_group.add_argument("--num_breaks", type=int, default=10)
+    grid_group.add_argument("--lowest", type=float, default=1e-5, help="Minimum MAF grid value.")
+    grid_group.add_argument("--highest", type=float, default=1e-2, help="Maximum MAF grid value.")
+    grid_group.add_argument("--num_breaks", type=int, default=10, help="Number of MAF grid breakpoints.")
 
-    infer.add_argument("-v", "--verbose", action="store_true", default=False)
+    infer.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable debug-level logging.",
+    )
     infer.set_defaults(func=run_infer_pipeline)
 
 
 def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser]) -> None:
-    curve = subparsers.add_parser("curve", help="Run curve fitting pipeline and optional plotting.")
+    curve = subparsers.add_parser(
+        "curve",
+        formatter_class=FMT,
+        help="Run curve fitting pipeline and optional plotting.",
+    )
     io_group = curve.add_argument_group("Input/Output")
-    io_group.add_argument("data")
-    io_group.add_argument("-o", "--output", type=ap.FileType("w"), default=sys.stdout)
+    io_group.add_argument("data", help="Input TSV from `mutvar infer`.")
+    io_group.add_argument(
+        "-o",
+        "--output",
+        type=ap.FileType("w"),
+        default=sys.stdout,
+        help="Output destination for curve coefficient TSV.",
+    )
 
     curve_group = curve.add_argument_group("Curve Options")
-    curve_group.add_argument("--fit-only", action="store_true", default=False)
+    curve_group.add_argument(
+        "--fit-only",
+        action="store_true",
+        default=False,
+        help="Fit curves only and skip plot generation.",
+    )
     curve.set_defaults(func=run_curve_cli_pipeline)
 
 
 def build_parser() -> ap.ArgumentParser:
     r"""Build the `mutvar` CLI parser with `infer` and `curve` subcommands."""
-    parser = ap.ArgumentParser(description="")
+    parser = ap.ArgumentParser(description="", formatter_class=FMT)
     subparsers = parser.add_subparsers(dest="command", required=True)
     _build_infer_subcommand(subparsers)
     _build_curve_subcommand(subparsers)
