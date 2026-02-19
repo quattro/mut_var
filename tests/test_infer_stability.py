@@ -66,7 +66,6 @@ def test_benchmark_dataset_is_reproducible_with_cache_config():
         num_breaks=4,
         lowest=1e-4,
         highest=1e-2,
-        batch_size=16,
         step_size=0.5,
         filter_threshold=1e-8,
         penalty=1.0,
@@ -91,7 +90,7 @@ def test_refit_retrace_diagnostics_have_stable_likelihood_shapes_retrace():
         maf_grid=maf_grid,
         maf_masks=maf_masks,
         seed=0,
-        config=InferenceConfig(num_clusters=4, max_iter=2, batch_size=8, step_size=0.5),
+        config=InferenceConfig(num_clusters=4, max_iter=2, step_size=0.5),
     )
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
@@ -137,7 +136,6 @@ def test_benchmark_report_contains_compile_and_steady_sections_profiling():
         num_breaks=3,
         lowest=1e-4,
         highest=1e-2,
-        batch_size=64,
         step_size=0.5,
         filter_threshold=1e-8,
         penalty=1.0,

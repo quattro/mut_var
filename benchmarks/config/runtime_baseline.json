@@ -6,7 +6,6 @@
   "num_breaks": 8,
   "lowest": 0.0001,
   "highest": 0.01,
-  "batch_size": 2000,
   "step_size": 0.5,
   "filter_threshold": 1e-08,
   "penalty": 1.0,

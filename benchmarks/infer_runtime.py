@@ -33,7 +33,6 @@ class RuntimeBenchmarkConfig(NamedTuple):
     num_breaks: int
     lowest: float
     highest: float
-    batch_size: int
     step_size: float
     filter_threshold: float
     penalty: float
@@ -73,7 +72,6 @@ def _maf_grid(config: RuntimeBenchmarkConfig) -> jax.Array:
 def _inference_config(config: RuntimeBenchmarkConfig) -> InferenceConfig:
     return InferenceConfig(
         num_clusters=config.num_clusters,
-        batch_size=config.batch_size,
         max_iter=config.max_iter,
         step_size=config.step_size,
         filter_threshold=config.filter_threshold,

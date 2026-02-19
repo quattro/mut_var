@@ -1,23 +1,22 @@
 from __future__ import annotations
 
 # pattern: Functional Core
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
 import jax.random as rdm
+import optimistix as optx
 
 from jax.scipy.special import logsumexp, xlogy
 from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics._optimize import OptimizationLoopConfig, run_iterative_optimization
+from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_nonfinite,
-    MAX_BACKTRACK_STEPS,
-    should_backtrack,
     simplex_tangent_direction,
 )
 
@@ -30,7 +29,6 @@ class Params(NamedTuple):
 
 class BaselineConfig(NamedTuple):
     num_clusters: int
-    batch_size: int = 10_000
     max_iter: int = 100
     tol: float = 1e-3
     step_size: float = 0.01
@@ -228,73 +226,69 @@ def fit_baseline(
         ** 2,
     )
 
-    vg_f = jax.jit(jax.value_and_grad(baseline_objective))
     obj = jax.jit(baseline_objective)
     nobs = len(beta_hat_arr)
-    using_sgd = config.batch_size < nobs
-
-    def _make_epoch_context(
-        _epoch: int,
-        _params: Params,
-        rng_key: rdm.PRNGKey | None,
-    ) -> tuple[tuple[ArrayLike, ArrayLike], rdm.PRNGKey | None]:
-        if not using_sgd:
-            return (beta_hat_arr, s2_arr), rng_key
-
-        if rng_key is None:
-            raise ValueError("sgd mode requires a PRNGKey")
-        next_key, sample_key = rdm.split(rng_key)
-        idxs = rdm.choice(sample_key, nobs, shape=(config.batch_size,), replace=False)
-        return (beta_hat_arr[idxs], s2_arr[idxs]), next_key
-
-    def _compute_direction(params_now: Params, epoch_context: tuple[ArrayLike, ArrayLike]) -> Params:
-        beta_now, s2_now = epoch_context
-        _, direction = vg_f(params_now, beta_now, s2_now, alpha)
-        if using_sgd:
-            scale = nobs / config.batch_size
-            direction = jax.tree.map(lambda x: scale * x, direction)
-        return direction
-
-    def _evaluate_objective(params_now: Params, epoch_context: tuple[ArrayLike, ArrayLike]) -> ArrayLike:
-        beta_now, s2_now = epoch_context
-        return obj(params_now, beta_now, s2_now, alpha)
-
-    loop_solution = run_iterative_optimization(
-        init_params=params,
-        init_objective=jnp.asarray(-1e10),
-        key=key if using_sgd else None,
-        config=OptimizationLoopConfig(
-            max_iter=config.max_iter,
-            tol=config.tol,
-            step_size=config.step_size,
-            max_backtracks=1 if using_sgd else MAX_BACKTRACK_STEPS,
-        ),
-        make_epoch_context=_make_epoch_context,
-        compute_direction=_compute_direction,
-        propose_candidate=_riemannian_step,
-        evaluate_objective=_evaluate_objective,
-        step_size_for_epoch=lambda epoch, base_step: float(jnp.power(base_step, epoch)),
-        should_backtrack_step=(lambda _diff, _objective: False) if using_sgd else should_backtrack,
-        progress_metric=lambda diff, objective: diff / (jnp.abs(objective) + 1e-12),
+    return _fit_baseline_optimistix(
+        init=params,
+        beta_hat=beta_hat_arr,
+        s2=s2_arr,
+        alpha=alpha,
+        objective=obj,
+        nobs=nobs,
+        config=config,
     )
 
-    if loop_solution.result == RESULTS.nonfinite_objective:
+
+def _fit_baseline_optimistix(
+    *,
+    init: Params,
+    beta_hat: ArrayLike,
+    s2: ArrayLike,
+    alpha: ArrayLike,
+    objective,
+    nobs: int,
+    config: BaselineConfig,
+) -> Solution:
+    def _neg_objective(params_now: Params, _unused: Any) -> ArrayLike:
+        return -objective(params_now, beta_hat, s2, alpha)
+
+    solver = MutVarSolver(
+        step_update=_riemannian_step,
+        step_size=config.step_size,
+        rtol=config.tol,
+        atol=config.tol,
+    )
+    optx_solution = optx.minimise(
+        fn=_neg_objective,
+        solver=solver,
+        y0=init,
+        args=None,
+        max_steps=config.max_iter,
+        throw=False,
+    )
+
+    objective_value = objective(optx_solution.value, beta_hat, s2, alpha)
+    if is_nonfinite(objective_value):
         return Solution(
-            value=loop_solution.params,
+            value=optx_solution.value,
             result=RESULTS.nonfinite_objective,
-            stats={"epoch": loop_solution.epoch_count, "objective": float(loop_solution.objective)},
-            state={"step_size": float(loop_solution.step_size)},
+            stats={
+                "epoch": int(optx_solution.stats.get("num_steps", 0)),
+                "objective": float(objective_value),
+            },
+            state=None,
         )
 
-    result = loop_solution.result
+    mapped_result = map_optimistix_result(optx_solution.result)
     return Solution(
-        value=loop_solution.params,
-        result=result,
+        value=optx_solution.value,
+        result=mapped_result,
         stats={
-            "epoch_count": loop_solution.epoch_count,
-            "objective": float(loop_solution.objective),
-            "converged": loop_solution.converged,
+            "epoch_count": int(optx_solution.stats.get("num_steps", 0)),
+            "objective": float(objective_value),
+            "converged": mapped_result == RESULTS.successful,
             "num_observations": int(nobs),
+            "used_full_batch_objective": True,
         },
         state=None,
     )

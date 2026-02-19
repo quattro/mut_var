@@ -26,7 +26,7 @@ def test_run_inference_numerics_pipeline_returns_solution_with_status_and_stats(
         maf_grid=maf_grid,
         maf_masks=maf_masks,
         seed=0,
-        config=InferenceConfig(num_clusters=3, max_iter=5, batch_size=8, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
     )
 
     assert isinstance(solution, Solution)
@@ -44,7 +44,7 @@ def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, batch_size=8, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
     )
 
     assert isinstance(result_df, pl.DataFrame)
@@ -73,7 +73,7 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
-            config=InferenceConfig(num_clusters=3, max_iter=2, batch_size=8, step_size=0.5),
+            config=InferenceConfig(num_clusters=3, max_iter=2, step_size=0.5),
         )
 
     assert "non-finite" in str(err.value)
@@ -99,7 +99,7 @@ def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays(sumsta
         maf_grid=maf_grid,
         maf_masks=maf_masks,
         seed=0,
-        config=InferenceConfig(num_clusters=3, max_iter=2, batch_size=8),
+        config=InferenceConfig(num_clusters=3, max_iter=2),
     )
 
     assert solution.result == RESULTS.invalid_input
@@ -115,7 +115,7 @@ def test_pipeline_returns_empty_subset_when_masks_select_nothing(sumstats_valid_
         maf_grid=maf_grid,
         maf_masks=maf_masks,
         seed=0,
-        config=InferenceConfig(num_clusters=3, max_iter=2, batch_size=4),
+        config=InferenceConfig(num_clusters=3, max_iter=2),
     )
 
     assert solution.result == RESULTS.empty_subset

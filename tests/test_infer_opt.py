@@ -1,12 +1,14 @@
+from typing import Any, cast
+
 import jax.numpy as jnp
 import jax.random as rdm
 import polars as pl
+import pytest
 
 import mut_var.cli as cli
 
 from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import baseline, refit
-from mut_var.numerics._optimize import OptimizationLoopConfig, run_iterative_optimization
 from mut_var.numerics.baseline import BaselineConfig, fit_baseline
 from mut_var.numerics.refit import _fit_single_refit, RefitConfig
 
@@ -19,7 +21,7 @@ def test_fit_baseline_returns_structured_solution_on_valid_arrays():
         beta_hat=beta_hat,
         s2=s2,
         key=rdm.PRNGKey(0),
-        config=BaselineConfig(num_clusters=3, batch_size=5, max_iter=5, step_size=0.5),
+        config=BaselineConfig(num_clusters=3, max_iter=5, step_size=0.5),
     )
 
     assert isinstance(solution, Solution)
@@ -75,7 +77,7 @@ def test_algorithm_scope_keeps_original_objective_functions():
     assert callable(refit.penalized_objective)
 
 
-def test_fit_single_refit_returns_last_accepted_params_when_backtracking_never_accepts():
+def test_fit_single_refit_returns_controlled_failure_for_nonfinite_objective():
     init = baseline.Params(
         pi=jnp.array([0.7, 0.3]),
         mu_k=jnp.array([0.0]),
@@ -84,66 +86,66 @@ def test_fit_single_refit_returns_last_accepted_params_when_backtracking_never_a
     likelihoods = jnp.array([[0.2, 0.8], [0.4, 0.6]], dtype=jnp.float64)
     weights = jnp.array([1.0, 1.0], dtype=jnp.float64)
 
-    def _vg_f(*_args, **_kwargs):
-        return jnp.array(0.0), baseline.Params(
-            pi=jnp.array([0.2, -0.2]),
-            mu_k=jnp.array([0.0]),
-            var_k=jnp.array([0.0]),
-        )
-
-    def _always_reject_obj(*_args, **_kwargs):
-        return -jnp.inf
+    def _nonfinite_obj(*_args, **_kwargs):
+        return jnp.nan
 
     solution = _fit_single_refit(
         likelihoods=likelihoods,
         weights=weights,
         init=init,
         config=RefitConfig(max_iter=1, step_size=0.75, tol=1e-8),
-        vg_f=_vg_f,
-        obj=_always_reject_obj,
+        obj=_nonfinite_obj,
     )
 
-    assert solution.result == RESULTS.max_steps_reached
-    assert bool(jnp.allclose(solution.value.pi, init.pi))
+    assert solution.result == RESULTS.nonfinite_objective
 
 
-def test_run_iterative_optimization_respects_step_schedule_and_convergence_metric():
-    result = run_iterative_optimization(
-        init_params=jnp.asarray(0.0),
-        init_objective=jnp.asarray(0.0),
-        key=None,
-        config=OptimizationLoopConfig(max_iter=5, tol=0.3, step_size=1.0, max_backtracks=1),
-        make_epoch_context=lambda _epoch, _params, key: (None, key),
-        compute_direction=lambda _params, _ctx: jnp.asarray(1.0),
-        propose_candidate=lambda params, direction, step_size: params + direction * step_size,
-        evaluate_objective=lambda candidate, _ctx: candidate,
-        step_size_for_epoch=lambda epoch, base_step: base_step * (0.5**epoch),
-        should_backtrack_step=lambda _diff, _objective: False,
-        progress_metric=lambda diff, _objective: diff,
+def test_fit_baseline_uses_optimistix_solver_path_by_default():
+    beta_hat = jnp.array([0.05, -0.03, 0.01, 0.02, -0.01])
+    s2 = jnp.array([0.01, 0.015, 0.02, 0.013, 0.011])
+
+    solution = fit_baseline(
+        beta_hat=beta_hat,
+        s2=s2,
+        key=rdm.PRNGKey(0),
+        config=BaselineConfig(
+            num_clusters=3,
+            max_iter=5,
+            step_size=0.5,
+        ),
     )
 
-    assert result.result == RESULTS.successful
-    assert result.converged
-    assert result.epoch_count == 3
-    assert float(result.params) == 1.75
+    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
+    assert solution.value is not None
 
 
-def test_run_iterative_optimization_keeps_last_accepted_params_when_all_candidates_reject():
-    init = jnp.asarray(2.0)
+def test_baseline_config_no_longer_exposes_solver_backend_knob():
+    with pytest.raises(TypeError):
+        cast(Any, BaselineConfig)(num_clusters=3, solver_backend="optimistix")
 
-    result = run_iterative_optimization(
-        init_params=init,
-        init_objective=jnp.asarray(5.0),
-        key=None,
-        config=OptimizationLoopConfig(max_iter=2, tol=1e-9, step_size=0.5, max_backtracks=3),
-        make_epoch_context=lambda _epoch, _params, key: (None, key),
-        compute_direction=lambda _params, _ctx: jnp.asarray(1.0),
-        propose_candidate=lambda params, direction, step_size: params + direction * step_size,
-        evaluate_objective=lambda _candidate, _ctx: jnp.asarray(-jnp.inf),
-        step_size_for_epoch=lambda _epoch, base_step: base_step,
-        should_backtrack_step=lambda _diff, _objective: True,
-        progress_metric=lambda diff, _objective: diff,
+
+def test_fit_refit_grid_uses_optimistix_solver_path_by_default():
+    beta_hat = jnp.array([0.05, -0.03, 0.01, 0.02, -0.01])
+    s2 = jnp.array([0.01, 0.015, 0.02, 0.013, 0.011])
+    maf_masks = jnp.array([[True, True, True, True, True]], dtype=bool)
+    init = baseline.Params(
+        pi=jnp.array([0.8, 0.2]),
+        mu_k=jnp.array([0.0]),
+        var_k=jnp.array([1.0]),
     )
 
-    assert result.result == RESULTS.max_steps_reached
-    assert float(result.params) == float(init)
+    solution = refit.fit_refit_grid(
+        beta_hat=beta_hat,
+        s2=s2,
+        maf_masks=maf_masks,
+        init=init,
+        config=RefitConfig(max_iter=5, step_size=0.5),
+    )
+
+    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
+    assert len(solution.value) == 2
+
+
+def test_refit_config_no_longer_exposes_solver_backend_knob():
+    with pytest.raises(TypeError):
+        cast(Any, RefitConfig)(solver_backend="optimistix")

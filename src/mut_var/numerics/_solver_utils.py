@@ -10,7 +10,6 @@ from jaxtyping import Array, ArrayLike
 from mut_var.contracts import RESULTS
 
 RECOVERABLE_RESULTS = (RESULTS.successful, RESULTS.max_steps_reached)
-MAX_BACKTRACK_STEPS = 20
 
 
 def is_recoverable_result(result: RESULTS) -> bool:
@@ -25,10 +24,6 @@ def merge_recoverable_results(*results: RESULTS) -> RESULTS:
 
 def is_nonfinite(value: ArrayLike) -> bool:
     return not bool(jnp.isfinite(jnp.asarray(value)).all())
-
-
-def should_backtrack(diff: ArrayLike, objective: ArrayLike) -> bool:
-    return bool(jnp.asarray(diff) < 0) or is_nonfinite(objective)
 
 
 def simplex_tangent_direction(pi: Array, direction: Array) -> Array:

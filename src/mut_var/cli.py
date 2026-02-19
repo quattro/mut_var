@@ -50,7 +50,6 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     model_group.add_argument("-k", "--num-clusters", type=int, default=30)
     model_group.add_argument("-m", "--max-iter", type=int, default=100)
     model_group.add_argument("-r", "--step-size", type=float, default=0.01)
-    model_group.add_argument("-b", "--batch-size", type=int, default=10_000)
     model_group.add_argument("-s", "--seed", type=int, default=0)
     model_group.add_argument("-f", "--filter", type=float, default=1e-8)
     model_group.add_argument("--penalty", type=float, default=1.0)
@@ -110,7 +109,6 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             seed=args.seed,
             config=InferenceConfig(
                 num_clusters=args.num_clusters,
-                batch_size=args.batch_size,
                 max_iter=args.max_iter,
                 step_size=args.step_size,
                 filter_threshold=args.filter,

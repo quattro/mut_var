@@ -2,23 +2,22 @@ from __future__ import annotations
 
 # pattern: Functional Core
 from time import perf_counter
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import jax
 import jax.nn as nn
 import jax.numpy as jnp
+import optimistix as optx
 
 from jax.scipy.special import xlogy
 from jax.scipy.stats import norm
 from jaxtyping import ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics._optimize import OptimizationLoopConfig, run_iterative_optimization
+from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_recoverable_result,
-    MAX_BACKTRACK_STEPS,
-    should_backtrack,
     simplex_tangent_direction,
 )
 from mut_var.numerics.baseline import Params
@@ -66,7 +65,6 @@ def _fit_single_refit(
     weights: ArrayLike,
     init: Params,
     config: RefitConfig,
-    vg_f,
     obj,
 ) -> Solution:
     likelihoods_arr = jnp.asarray(likelihoods)
@@ -106,80 +104,70 @@ def _fit_single_refit(
 
     alpha = jnp.array([10.0] + (len(init.pi) - 1) * [1.0])
     params = Params(jnp.asarray(init.pi), jnp.asarray(init.mu_k), jnp.asarray(init.var_k))
-    epoch_context = (likelihoods_arr, weights_arr, alpha, init, config.penalty)
+    return _fit_single_refit_optimistix(
+        likelihoods=likelihoods_arr,
+        weights=weights_arr,
+        alpha=alpha,
+        init=params,
+        objective=obj,
+        config=config,
+    )
 
-    def _make_epoch_context(
-        _epoch: int,
-        _params: Params,
-        rng_key,
-    ):
-        return epoch_context, rng_key
 
-    def _compute_direction(params_now: Params, context) -> Params:
-        likelihoods_now, weights_now, alpha_now, init_now, penalty_now = context
-        _, direction = vg_f(
-            params_now,
-            likelihoods_now,
-            weights_now,
-            alpha_now,
-            init_now,
-            penalty_now,
-        )
-        return direction
-
-    def _propose_candidate(params_now: Params, direction: Params, step_size: float) -> Params:
+def _fit_single_refit_optimistix(
+    *,
+    likelihoods: ArrayLike,
+    weights: ArrayLike,
+    alpha: ArrayLike,
+    init: Params,
+    objective,
+    config: RefitConfig,
+) -> Solution:
+    def _propose_candidate(params_now: Params, direction: Params, step_size: ArrayLike) -> Params:
         tangent_pi = simplex_tangent_direction(params_now.pi, direction.pi)
         pi = exponential_map_simplex(params_now.pi, tangent_pi, step_size)
         return Params(pi, params_now.mu_k, params_now.var_k)
 
-    def _evaluate_objective(params_now: Params, context) -> ArrayLike:
-        likelihoods_now, weights_now, alpha_now, init_now, penalty_now = context
-        return obj(
-            params_now,
-            likelihoods_now,
-            weights_now,
-            alpha_now,
-            init_now,
-            penalty_now,
-        )
+    def _neg_objective(params_now: Params, _unused: Any) -> ArrayLike:
+        return -objective(params_now, likelihoods, weights, alpha, init, config.penalty)
 
-    loop_solution = run_iterative_optimization(
-        init_params=params,
-        init_objective=jnp.asarray(-1e10),
-        key=None,
-        config=OptimizationLoopConfig(
-            max_iter=config.max_iter,
-            tol=config.tol,
-            step_size=config.step_size,
-            max_backtracks=MAX_BACKTRACK_STEPS,
-        ),
-        make_epoch_context=_make_epoch_context,
-        compute_direction=_compute_direction,
-        propose_candidate=_propose_candidate,
-        evaluate_objective=_evaluate_objective,
-        step_size_for_epoch=lambda _epoch, base_step: base_step,
-        should_backtrack_step=should_backtrack,
-        progress_metric=lambda diff, _objective: diff,
+    solver = MutVarSolver(
+        step_update=_propose_candidate,
+        step_size=config.step_size,
+        rtol=config.tol,
+        atol=config.tol,
+    )
+    optx_solution = optx.minimise(
+        fn=_neg_objective,
+        solver=solver,
+        y0=init,
+        args=None,
+        max_steps=config.max_iter,
+        throw=False,
     )
 
-    if loop_solution.result == RESULTS.nonfinite_objective:
+    objective_value = objective(optx_solution.value, likelihoods, weights, alpha, init, config.penalty)
+    mapped_result = map_optimistix_result(optx_solution.result)
+    if not bool(jnp.isfinite(objective_value)):
         return Solution(
-            value=loop_solution.params,
+            value=optx_solution.value,
             result=RESULTS.nonfinite_objective,
-            stats={"epoch": loop_solution.epoch_count, "objective": float(loop_solution.objective)},
-            state={"step_size": float(loop_solution.step_size)},
+            stats={
+                "epoch": int(optx_solution.stats.get("num_steps", 0)),
+                "objective": float(objective_value),
+            },
+            state=None,
         )
 
-    result = loop_solution.result
     return Solution(
-        value=loop_solution.params,
-        result=result,
+        value=optx_solution.value,
+        result=mapped_result,
         stats={
-            "epoch_count": loop_solution.epoch_count,
-            "objective": float(loop_solution.objective),
-            "converged": loop_solution.converged,
-            "n_obs_used": int(jnp.sum(weights_arr > 0.0)),
-            "likelihood_shape": tuple(int(x) for x in likelihoods_arr.shape),
+            "epoch_count": int(optx_solution.stats.get("num_steps", 0)),
+            "objective": float(objective_value),
+            "converged": mapped_result == RESULTS.successful,
+            "n_obs_used": int(jnp.sum(weights > 0.0)),
+            "likelihood_shape": tuple(int(x) for x in jnp.asarray(likelihoods).shape),
         },
         state=None,
     )
@@ -212,7 +200,6 @@ def fit_refit_grid(
             state=None,
         )
 
-    vg_f = jax.jit(jax.value_and_grad(penalized_objective))
     obj = jax.jit(penalized_objective)
 
     models = [init]
@@ -236,7 +223,7 @@ def fit_refit_grid(
         likelihoods = pdf(beta_hat_arr, s2_arr, mu_k, var_k)
 
         start = perf_counter()
-        fit_solution = _fit_single_refit(likelihoods, weights, models[-1], config, vg_f, obj)
+        fit_solution = _fit_single_refit(likelihoods, weights, models[-1], config, obj)
         elapsed = perf_counter() - start
         total_elapsed += elapsed
 

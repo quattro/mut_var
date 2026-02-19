@@ -23,7 +23,6 @@ class InferenceArrays(NamedTuple):
 
 class InferenceConfig(NamedTuple):
     num_clusters: int
-    batch_size: int = 10_000
     max_iter: int = 100
     tol: float = 1e-3
     step_size: float = 0.01
@@ -33,7 +32,6 @@ class InferenceConfig(NamedTuple):
     def to_baseline_config(self) -> BaselineConfig:
         return BaselineConfig(
             num_clusters=self.num_clusters,
-            batch_size=self.batch_size,
             max_iter=self.max_iter,
             tol=self.tol,
             step_size=self.step_size,
