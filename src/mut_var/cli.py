@@ -2,7 +2,7 @@ import argparse as ap
 import logging
 import sys
 
-from typing import NamedTuple
+from typing import NamedTuple, Sequence
 
 import jax
 import jax.nn as nn
@@ -16,6 +16,7 @@ from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
 from .io import (
+    MutVarInputError,
     read_sumstats,
     validate_maf_grid,
     validate_numeric_columns,
@@ -354,7 +355,7 @@ def fit_mixture(
     return Params(pi, init.mu_k, init.var_k)
 
 
-def _main(args):
+def build_parser() -> ap.ArgumentParser:
     argp = ap.ArgumentParser(description="")
     argp.add_argument("sumstats")
     argp.add_argument("-t", "--maf-threshold", type=float, default=0.01)
@@ -373,14 +374,22 @@ def _main(args):
     argp.add_argument("--se-col", type=str, default="standard_error")
     argp.add_argument("-v", "--verbose", action="store_true", default=False)
     argp.add_argument("-o", "--output", type=ap.FileType("w"), default=sys.stdout)
+    return argp
 
-    args = argp.parse_args(args)
+
+def parse_and_validate(argv: Sequence[str] | None = None) -> ap.Namespace:
+    args = build_parser().parse_args(list(argv) if argv is not None else None)
+    validate_maf_grid(args.lowest, args.highest, args.num_breaks)
+    return args
+
+
+def run_infer_workflow(args: ap.Namespace) -> int:
+    validate_maf_grid(args.lowest, args.highest, args.num_breaks)
 
     jax.config.update("jax_enable_x64", True)
     key = rdm.PRNGKey(args.seed)
     key, baseline_key, mixture_key = rdm.split(key, 3)
 
-    validate_maf_grid(args.lowest, args.highest, args.num_breaks)
     df_d = read_sumstats(args.sumstats)
     validate_required_columns(df_d, args.af_col, args.beta_col, args.se_col)
     validate_numeric_columns(df_d, args.af_col, args.beta_col, args.se_col)
@@ -455,8 +464,18 @@ def _main(args):
     return 0
 
 
-def run_cli():
-    return _main(sys.argv[1:])
+def run_cli(argv: Sequence[str] | None = None) -> int:
+    cli_args = sys.argv[1:] if argv is None else list(argv)
+    try:
+        args = parse_and_validate(cli_args)
+        return run_infer_workflow(args)
+    except MutVarInputError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except SystemExit as exc:
+        if isinstance(exc.code, int):
+            return exc.code
+        return 1
 
 if __name__ == "__main__":
-    sys.exit(_main(sys.argv[1:]))
+    sys.exit(run_cli())
