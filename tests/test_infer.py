@@ -1,4 +1,4 @@
-import numpy as np
+import jax.numpy as jnp
 
 import mut_var
 import mut_var.cli as cli
@@ -11,7 +11,7 @@ from mut_var.numerics.pipeline import InferenceArrays, InferenceConfig, run_infe
 def test_run_inference_pipeline_returns_solution_with_status_and_stats(sumstats_valid_df):
     df = sumstats_valid_df
     arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
-    maf_grid = np.array([1e-3, 5e-3])
+    maf_grid = jnp.asarray([1e-3, 5e-3])
     maf_masks = build_maf_masks(arrays.af, maf_grid)
 
     solution = run_inference_pipeline(
@@ -42,8 +42,8 @@ def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays(sumsta
     assert not hasattr(arrays.beta_hat, "columns")
 
     bad_arrays = InferenceArrays(af=df, beta_hat=df, s2=df)
-    maf_grid = np.array([1e-3, 5e-3])
-    maf_masks = np.array([[True, True, True, True, True, True, True, True]])
+    maf_grid = jnp.asarray([1e-3, 5e-3])
+    maf_masks = jnp.asarray([[True, True, True, True, True, True, True, True]])
 
     solution = run_inference_pipeline(
         arrays=bad_arrays,
@@ -58,8 +58,8 @@ def test_pipeline_rejects_tabular_payloads_and_adapters_convert_to_arrays(sumsta
 
 def test_pipeline_returns_empty_subset_when_masks_select_nothing(sumstats_valid_df):
     arrays = to_inference_arrays(sumstats_valid_df, "effect_allele_frequency", "beta", "standard_error")
-    maf_grid = np.array([0.49, 0.5])
-    maf_masks = np.zeros((2, len(np.asarray(arrays.af))), dtype=bool)
+    maf_grid = jnp.asarray([0.49, 0.5])
+    maf_masks = jnp.zeros((2, len(arrays.af)), dtype=bool)
 
     solution = run_inference_pipeline(
         arrays=arrays,

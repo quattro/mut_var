@@ -39,12 +39,12 @@ pip install mut-var
 
 Canonical infer workflow:
 
-- CLI: `mutvar <sumstats.tsv> [options]`
+- CLI: `mutvar infer <sumstats.tsv> [options]`
 - API: `mut_var.run_inference_pipeline(...)`
 
 Canonical curve workflow:
 
-- CLI: `mutvar-curve <mutvar-output.tsv> [--fit-only]`
+- CLI: `mutvar curve <mutvar-output.tsv> [--fit-only]`
 - API: `mut_var.run_curve_workflow(input_path, generate_plots=...)`
 
 ## Architecture Contract
@@ -102,7 +102,7 @@ Curve fitting is split into:
 
 Behavior guarantees:
 
-- Fit-only mode (`generate_plots=False` / `mutvar-curve --fit-only`) does not import plotting
+- Fit-only mode (`generate_plots=False` / `mutvar curve --fit-only`) does not import plotting
   adapters and produces no PNG side effects.
 - Plotting mode consumes precomputed fit outputs and only adds PNG side effects; fitted coefficients
   remain unchanged.

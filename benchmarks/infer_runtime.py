@@ -9,7 +9,9 @@ from pathlib import Path
 from time import sleep
 from typing import Any
 
-import numpy as np
+import jax
+import jax.numpy as jnp
+import jax.random as rdm
 import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,21 +54,22 @@ def load_config(path: Path) -> RuntimeBenchmarkConfig:
 
 
 def generate_sumstats(config: RuntimeBenchmarkConfig) -> pl.DataFrame:
-    rng = np.random.default_rng(config.seed)
-    af = rng.uniform(0.01, 0.49, size=config.num_rows)
-    beta = rng.normal(0.0, 0.05, size=config.num_rows)
-    se = rng.uniform(0.01, 0.06, size=config.num_rows)
+    key = rdm.PRNGKey(config.seed)
+    key_af, key_beta, key_se = rdm.split(key, 3)
+    af = rdm.uniform(key_af, shape=(config.num_rows,), minval=0.01, maxval=0.49)
+    beta = 0.05 * rdm.normal(key_beta, shape=(config.num_rows,))
+    se = rdm.uniform(key_se, shape=(config.num_rows,), minval=0.01, maxval=0.06)
     return pl.DataFrame(
         {
-            "effect_allele_frequency": af,
-            "beta": beta,
-            "standard_error": se,
+            "effect_allele_frequency": af.tolist(),
+            "beta": beta.tolist(),
+            "standard_error": se.tolist(),
         }
     )
 
 
-def _maf_grid(config: RuntimeBenchmarkConfig) -> np.ndarray:
-    return np.exp(np.linspace(np.log(config.lowest), np.log(config.highest), config.num_breaks))
+def _maf_grid(config: RuntimeBenchmarkConfig) -> jax.Array:
+    return jnp.exp(jnp.linspace(jnp.log(config.lowest), jnp.log(config.highest), config.num_breaks))
 
 
 def _inference_config(config: RuntimeBenchmarkConfig) -> InferenceConfig:

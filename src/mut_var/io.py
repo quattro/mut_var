@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import polars as pl
 
 
@@ -145,9 +144,13 @@ def dataframe_fingerprint(df: pl.DataFrame, columns: list[str]) -> str:
         hasher.update(col.encode("utf-8"))
         hasher.update(str(series.dtype).encode("utf-8"))
         if series.dtype.is_numeric():
-            arr = np.ascontiguousarray(series.cast(pl.Float64, strict=False).to_numpy())
+            arr = series.cast(pl.Float64, strict=False).fill_null(float("nan")).to_jax()
+            hasher.update(arr.tobytes())
         else:
-            arr = np.ascontiguousarray(series.cast(pl.Utf8, strict=False).to_numpy())
-        hasher.update(arr.tobytes())
+            values = series.cast(pl.Utf8, strict=False).fill_null("").to_list()
+            for value in values:
+                payload = value.encode("utf-8")
+                hasher.update(len(payload).to_bytes(8, byteorder="little", signed=False))
+                hasher.update(payload)
 
     return hasher.hexdigest()

@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import jax.numpy as jnp
-import numpy as np
 
 from mut_var.contracts import RESULTS
 from mut_var.curve import run_curve_workflow
@@ -21,9 +20,9 @@ def _copy_fixture(tmp_path: Path) -> Path:
     return data_path
 
 
-def _coef_matrix(solution_value: dict) -> np.ndarray:
+def _coef_matrix(solution_value: dict) -> jnp.ndarray:
     rows = sorted(solution_value["coefficients"], key=lambda row: row["var0"])
-    return np.asarray([[r["coef_left"], r["coef_right"], r["coef_rate"]] for r in rows], dtype=float)
+    return jnp.asarray([[r["coef_left"], r["coef_right"], r["coef_rate"]] for r in rows], dtype=float)
 
 
 def test_fit_only_numerics_has_no_plotting_dependency():
@@ -48,7 +47,7 @@ def test_fit_only_workflow_is_deterministic_and_side_effect_free(tmp_path):
     assert second.result == RESULTS.successful
     assert first.value["plots"] == []
     assert second.value["plots"] == []
-    np.testing.assert_allclose(_coef_matrix(first.value), _coef_matrix(second.value), rtol=1e-6, atol=1e-6)
+    assert bool(jnp.allclose(_coef_matrix(first.value), _coef_matrix(second.value), rtol=1e-6, atol=1e-6))
 
     assert "mut_var.plotting.curve_plots" not in sys.modules
     assert list(tmp_path.glob("*.png")) == []
@@ -76,4 +75,4 @@ def test_plotting_does_not_change_fit_outputs(tmp_path):
 
     assert fit_only.result == RESULTS.successful
     assert with_plots.result == RESULTS.successful
-    np.testing.assert_allclose(_coef_matrix(fit_only.value), _coef_matrix(with_plots.value), rtol=1e-6, atol=1e-6)
+    assert bool(jnp.allclose(_coef_matrix(fit_only.value), _coef_matrix(with_plots.value), rtol=1e-6, atol=1e-6))

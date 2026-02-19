@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import argparse as ap
-import sys
-
 from pathlib import Path
-from typing import Sequence
 
 import jax.numpy as jnp
 import polars as pl
@@ -46,8 +42,8 @@ def run_curve_workflow(input_path: str, *, generate_plots: bool) -> Solution:
     grouped = df.sort(["var0", "maf"]).group_by("var0", maintain_order=True)
     for variance, df_sub in grouped:
         var0 = _to_scalar_var(variance)
-        maf = jnp.asarray(df_sub["maf"].to_numpy())
-        value = jnp.asarray(df_sub["value"].to_numpy())
+        maf = jnp.asarray(df_sub["maf"].to_jax())
+        value = jnp.asarray(df_sub["value"].to_jax())
 
         fit_solution = fit_curve(maf, value)
         if fit_solution.result != RESULTS.successful:
@@ -92,32 +88,3 @@ def run_curve_workflow(input_path: str, *, generate_plots: bool) -> Solution:
         stats={"num_curves": len(coeff_rows), "plots_generated": len(plot_paths)},
         state=None,
     )
-
-
-def build_parser() -> ap.ArgumentParser:
-    argp = ap.ArgumentParser(description="")
-    argp.add_argument("data")
-    argp.add_argument("--fit-only", action="store_true", default=False)
-    argp.add_argument("-o", "--output", type=ap.FileType("w"), default=sys.stdout)
-    return argp
-
-
-def run_cli(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(list(argv) if argv is not None else None)
-    solution = run_curve_workflow(args.data, generate_plots=not args.fit_only)
-    if solution.result != RESULTS.successful:
-        reason = None
-        if isinstance(solution.stats, dict):
-            reason = solution.stats.get("reason")
-        if reason is None:
-            reason = f"Curve workflow failed with status '{solution.result.value}'."
-        print(reason, file=sys.stderr)
-        return 2
-
-    coef_df = pl.DataFrame(solution.value["coefficients"])
-    coef_df.write_csv(args.output, separator="\t")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(run_cli(sys.argv[1:]))

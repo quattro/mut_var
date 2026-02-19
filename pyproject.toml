@@ -27,14 +27,12 @@ dependencies = [
     "jax",
     "optimistix",
     "matplotlib",
-    "numpy",
     "polars",
     "jaxtyping"
 ]
 
 [project.scripts]
 mutvar = "mut_var.cli:run_cli"
-mutvar-curve = "mut_var.curve:run_cli"
 
 [project.urls]
 Documentation = "https://github.com/quattro/mut-var#readme"

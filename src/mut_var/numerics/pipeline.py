@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import jax
 import jax.numpy as jnp
 import jax.random as rdm
-import numpy as np
 
 from jaxtyping import ArrayLike
 
@@ -47,27 +45,28 @@ def _filter_components(params: Params, threshold: float) -> Params:
 
 
 def _build_long_payload(models: list[Params], maf_grid: ArrayLike, af: ArrayLike) -> dict[str, Any]:
-    maf_arr = np.asarray(maf_grid, dtype=float)
-    af_arr = np.asarray(af, dtype=float)
+    maf_arr = jnp.asarray(maf_grid, dtype=jnp.float64)
+    af_arr = jnp.asarray(af, dtype=jnp.float64)
 
-    empirical_min_maf = float(min(np.min(af_arr), 1.0 - np.max(af_arr)))
-    maf_values = np.concatenate(([empirical_min_maf], maf_arr))
-    names = np.array([f"pi{idx}" for idx in range(len(models))], dtype=object)
+    empirical_min_maf = jnp.minimum(jnp.min(af_arr), 1.0 - jnp.max(af_arr))
+    maf_values = jnp.concatenate((jnp.asarray([empirical_min_maf], dtype=jnp.float64), maf_arr))
+    names = [f"pi{idx}" for idx in range(len(models))]
 
-    mu0 = np.asarray(jnp.pad(models[0].mu_k, (1, 0)), dtype=float)
-    var0 = np.asarray(jnp.pad(models[0].var_k, (1, 0)), dtype=float)
+    mu0 = jnp.asarray(jnp.pad(models[0].mu_k, (1, 0)), dtype=jnp.float64)
+    var0 = jnp.asarray(jnp.pad(models[0].var_k, (1, 0)), dtype=jnp.float64)
 
-    if any(len(np.asarray(model.pi)) != len(mu0) for model in models):
+    if any(model.pi.shape[0] != mu0.shape[0] for model in models):
         raise ValueError("All models must keep the same number of mixture components.")
 
-    values = np.concatenate([np.asarray(model.pi, dtype=float) for model in models])
-    n_comp = len(mu0)
+    values = jnp.concatenate([jnp.asarray(model.pi, dtype=jnp.float64) for model in models])
+    n_comp = int(mu0.shape[0])
+    name_values = [name for name in names for _ in range(n_comp)]
 
     return {
-        "mu0": np.tile(mu0, len(models)),
-        "var0": np.tile(var0, len(models)),
-        "maf": np.repeat(maf_values, n_comp),
-        "name": np.repeat(names, n_comp),
+        "mu0": jnp.tile(mu0, len(models)),
+        "var0": jnp.tile(var0, len(models)),
+        "maf": jnp.repeat(maf_values, n_comp),
+        "name": name_values,
         "value": values,
     }
 
@@ -79,7 +78,6 @@ def run_inference_pipeline(
     seed: int,
     config: InferenceConfig,
 ) -> Solution:
-    jax.config.update("jax_enable_x64", True)
     beta_hat = jnp.asarray(arrays.beta_hat)
     s2 = jnp.asarray(arrays.s2)
 
@@ -127,7 +125,7 @@ def run_inference_pipeline(
         result=result,
         stats={
             "num_models": len(models),
-            "num_components": int(len(np.asarray(models[0].pi))),
+            "num_components": int(models[0].pi.shape[0]),
             "baseline": baseline_solution.stats,
             "refit": refit_solution.stats,
         },

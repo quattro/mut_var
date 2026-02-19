@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import numpy as np
+import jax.numpy as jnp
 import polars as pl
 
 from benchmarks.infer_runtime import build_report, generate_sumstats, RuntimeBenchmarkConfig
@@ -83,7 +83,7 @@ def test_benchmark_dataset_is_reproducible_with_cache_config():
 def test_refit_retrace_diagnostics_have_stable_likelihood_shapes_retrace():
     df = _sample_df()
     arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
-    maf_grid = np.array([1e-3, 5e-3, 1e-2])
+    maf_grid = jnp.asarray([1e-3, 5e-3, 1e-2])
     maf_masks = build_maf_masks(arrays.af, maf_grid)
 
     solution = run_inference_pipeline(
