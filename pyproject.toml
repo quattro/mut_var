@@ -25,6 +25,8 @@ classifiers = [
 ]
 dependencies = [
     "jax",
+    "optimistix",
+    "matplotlib",
     "numpy",
     "polars",
     "jaxtyping"
