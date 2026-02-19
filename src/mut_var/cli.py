@@ -15,6 +15,14 @@ from jax.scipy.special import xlogy, logsumexp
 from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
+from .io import (
+    read_sumstats,
+    validate_maf_grid,
+    validate_numeric_columns,
+    validate_required_columns,
+    validate_sumstats_domain,
+)
+
 
 def get_logger(name, path=None):
     logger = logging.getLogger(name)
@@ -372,8 +380,11 @@ def _main(args):
     key = rdm.PRNGKey(args.seed)
     key, baseline_key, mixture_key = rdm.split(key, 3)
 
-    # get data and put into groups based
-    df_d = pl.read_csv(args.sumstats, separator="\t")
+    validate_maf_grid(args.lowest, args.highest, args.num_breaks)
+    df_d = read_sumstats(args.sumstats)
+    validate_required_columns(df_d, args.af_col, args.beta_col, args.se_col)
+    validate_numeric_columns(df_d, args.af_col, args.beta_col, args.se_col)
+    validate_sumstats_domain(df_d, args.af_col, args.se_col)
 
     baseline = fit_baseline_mixture(
         df_d,
@@ -449,4 +460,3 @@ def run_cli():
 
 if __name__ == "__main__":
     sys.exit(_main(sys.argv[1:]))
-
