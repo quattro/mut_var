@@ -4,6 +4,7 @@
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
 from .contracts import RESULTS, Solution
+from .infer import InferenceArrays, InferenceConfig, run_inference_pipeline
 
 try:
     # Change here if project is renamed and does not equal the package name
@@ -14,4 +15,11 @@ except PackageNotFoundError:  # pragma: no cover
 finally:
     del version, PackageNotFoundError
 
-__all__ = ["RESULTS", "Solution", "__version__"]
+__all__ = [
+    "InferenceArrays",
+    "InferenceConfig",
+    "RESULTS",
+    "Solution",
+    "__version__",
+    "run_inference_pipeline",
+]
