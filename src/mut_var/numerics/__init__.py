@@ -1,8 +1,8 @@
-from .baseline import BaselineConfig, Params, fit_baseline
+from .baseline import BaselineConfig, fit_baseline, Params
 from .curve_fit import curve, fit_curve
 from .pipeline import InferenceArrays, InferenceConfig, run_inference_pipeline, run_profiled_inference_pipeline
-from .profiling import PerformanceGateResult, evaluate_performance_gate, profile_solution_runs
-from .refit import RefitConfig, fit_refit_grid
+from .profiling import evaluate_performance_gate, PerformanceGateResult, profile_solution_runs
+from .refit import fit_refit_grid, RefitConfig
 
 __all__ = [
     "BaselineConfig",

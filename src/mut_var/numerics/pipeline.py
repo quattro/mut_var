@@ -11,9 +11,9 @@ import numpy as np
 from jaxtyping import ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics.baseline import BaselineConfig, Params, fit_baseline
+from mut_var.numerics.baseline import BaselineConfig, fit_baseline, Params
 from mut_var.numerics.profiling import profile_solution_runs
-from mut_var.numerics.refit import RefitConfig, fit_refit_grid
+from mut_var.numerics.refit import fit_refit_grid, RefitConfig
 
 
 @dataclass(frozen=True, slots=True)
