@@ -56,12 +56,14 @@ def baseline_objective(
     r"""Evaluate the baseline penalized log-likelihood objective.
 
     **Arguments:**
+
     - `param`: Current mixture parameters.
     - `beta_hat`: Observed effect-size estimates.
     - `s2`: Observation variances.
     - `alpha`: Dirichlet prior concentration vector for mixture weights.
 
     **Returns:**
+
     - Scalar objective value to maximize.
     """
     log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
@@ -212,15 +214,18 @@ def fit_baseline(
     r"""Fit baseline mixture parameters with Optimistix full-batch descent.
 
     **Arguments:**
+
     - `beta_hat`: 1D effect-size estimates.
     - `s2`: 1D positive variances aligned with `beta_hat`.
     - `key`: JAX PRNG key used for simplex initialization.
     - `config`: Baseline solver controls.
 
     **Returns:**
+
     - `Solution` carrying fitted `Params` and status diagnostics.
 
     **Failure Modes:**
+
     - `RESULTS.invalid_input` for shape/domain violations.
     - `RESULTS.empty_subset` for empty arrays.
     - `RESULTS.nonfinite_objective` when objective evaluation is non-finite.

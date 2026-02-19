@@ -186,6 +186,7 @@ def fit_refit_grid(
     r"""Sequentially refit mixture weights across MAF-threshold masks.
 
     **Arguments:**
+
     - `beta_hat`: 1D effect-size estimates.
     - `s2`: 1D positive variances aligned with `beta_hat`.
     - `maf_masks`: 2D boolean masks selecting observations per threshold.
@@ -193,9 +194,11 @@ def fit_refit_grid(
     - `config`: Refit solver controls.
 
     **Returns:**
+
     - `Solution` with one fitted model per threshold (plus initial model).
 
     **Failure Modes:**
+
     - `RESULTS.invalid_input` for shape/mask mismatches.
     - `RESULTS.empty_subset` for empty threshold slices.
     - `RESULTS.nonfinite_objective` for non-finite objective values.

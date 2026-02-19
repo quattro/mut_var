@@ -23,13 +23,16 @@ def fit_curve(maf: ArrayLike, value: ArrayLike) -> Solution:
     r"""Fit curve coefficients with Levenberg-Marquardt least squares.
 
     **Arguments:**
+
     - `maf`: 1D MAF values.
     - `value`: 1D target values aligned with `maf`.
 
     **Returns:**
+
     - `Solution` with fitted coefficients in `value`.
 
     **Failure Modes:**
+
     - `RESULTS.invalid_input` for conversion, shape, or non-finite validation failures.
     - `RESULTS.empty_subset` for empty inputs.
     - `RESULTS.nonfinite_objective` for solver failures or non-finite coefficients.

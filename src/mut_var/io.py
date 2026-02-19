@@ -13,12 +13,15 @@ def read_sumstats(path: str) -> pl.DataFrame:
     r"""Read tab-delimited summary statistics from disk.
 
     **Arguments:**
+
     - `path`: Input TSV path.
 
     **Returns:**
+
     - Loaded dataframe.
 
     **Raises:**
+
     - `FileNotFoundError`: Path does not exist.
     - `ValueError`: File cannot be parsed as expected TSV input.
     """

@@ -20,9 +20,11 @@ def get_logger(name: str) -> logging.Logger:
     r"""Create or reuse a stderr logger for CLI diagnostics.
 
     **Arguments:**
+
     - `name`: Logger namespace.
 
     **Returns:**
+
     - Configured logger with stderr stream handler.
     """
     logger = logging.getLogger(name)
@@ -104,10 +106,12 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     r"""Run the CLI inference workflow.
 
     **Arguments:**
+
     - `args`: Parsed CLI arguments for `infer`.
     - `log`: Logger used for diagnostics.
 
     **Returns:**
+
     - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
     """
     try:
@@ -152,10 +156,12 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     r"""Run the CLI curve-fitting workflow.
 
     **Arguments:**
+
     - `args`: Parsed CLI arguments for `curve`.
     - `log`: Logger used for diagnostics.
 
     **Returns:**
+
     - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
     """
     try:
@@ -179,9 +185,11 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     r"""CLI entrypoint used by console scripts.
 
     **Arguments:**
+
     - `argv`: Optional argument vector; defaults to `sys.argv[1:]`.
 
     **Returns:**
+
     - Process exit code.
     """
     raw_args = sys.argv[1:] if argv is None else list(argv)

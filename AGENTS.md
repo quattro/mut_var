@@ -62,6 +62,17 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `mypy src/mut_var tests`
 - `pytest -p no:capture`
 
+## Docstrings
+- Use raw docstrings (`r"""..."""`) on public CLI/pipeline/numerics entrypoints.
+- Use exact section labels: `**Arguments:**`, `**Returns:**`, and `**Raises:**` or `**Failure Modes:**`.
+- Keep one empty line immediately after each section heading and one empty line between section blocks.
+- Use LaTeX math notation in docstrings when helpful (`$...$` inline, `$$...$$` display blocks).
+- Update docstrings in the same patch when signatures, status semantics, or side effects change.
+
+## Docs Markdown
+- Use MkDocs admonitions when they improve clarity in generated docs (for example: `!!! info`, `!!! note`, `!!! warning`, `!!! tip`).
+- Keep admonition titles/content concise and technically actionable; avoid decorative callouts.
+
 ## Project Structure
 - `src/mut_var/` - package API, CLI shell, pipelines, numerics, plotting adapters.
 - `tests/` - behavior and contract regression tests.

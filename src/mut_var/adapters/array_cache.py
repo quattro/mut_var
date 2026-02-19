@@ -22,12 +22,14 @@ class ArrayConversionCache:
 
     def build_key(self, df: pl.DataFrame, af_col: str, beta_col: str, se_col: str) -> CacheKey:
         r"""**Arguments:**
+
         - `df`: Input dataframe used for inference.
         - `af_col`: Effect-allele-frequency column name.
         - `beta_col`: Effect-size column name.
         - `se_col`: Standard-error column name.
 
         **Returns:**
+
         - Stable cache key for this dataframe/column selection.
         """
         fingerprint = dataframe_fingerprint(df, [af_col, beta_col, se_col])
@@ -35,9 +37,11 @@ class ArrayConversionCache:
 
     def get(self, key: CacheKey) -> InferenceArrays | None:
         r"""**Arguments:**
+
         - `key`: Cache lookup key.
 
         **Returns:**
+
         - Cached arrays when present, otherwise `None`.
         """
         return self._entries.get(key)
@@ -55,6 +59,7 @@ class ArrayConversionCache:
         converter: Callable[[pl.DataFrame, str, str, str], InferenceArrays],
     ) -> tuple[InferenceArrays, bool]:
         r"""**Arguments:**
+
         - `df`: Input dataframe.
         - `af_col`: Effect-allele-frequency column name.
         - `beta_col`: Effect-size column name.
@@ -62,6 +67,7 @@ class ArrayConversionCache:
         - `converter`: Conversion function from dataframe to inference arrays.
 
         **Returns:**
+
         - Tuple `(arrays, cache_hit)` where `cache_hit` is `True` when no conversion was needed.
         """
         key = self.build_key(df, af_col, beta_col, se_col)

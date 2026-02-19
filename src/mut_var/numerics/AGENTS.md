@@ -7,14 +7,14 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 
 ## Contracts
 - **Exposes**:
-  - `fit_baseline(beta_hat, s2, key, config, verbose_callback=None) -> Solution`
-  - `fit_refit_grid(beta_hat, s2, maf_masks, init, config, verbose_callback=None) -> Solution`
+  - `fit_baseline(beta_hat, s2, key, config, verbose=False) -> Solution`
+  - `fit_refit_grid(beta_hat, s2, maf_masks, init, config, verbose=False) -> Solution`
   - `fit_curve(maf, value) -> Solution`
 - **Guarantees**:
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths.
   - Baseline/refit optimization is full-batch and routed through Optimistix (`MutVarSolver` with backtracking line search).
   - Baseline and refit objectives are JIT-staged with `equinox.filter_jit`.
-  - Optional `verbose_callback` hooks receive `(step_index, loss, grad_norm)` diagnostics without adding logging side effects inside numerics.
+  - Optional `verbose` controls (bool/callable) emit solver diagnostics from the Optimistix-compatible solver step path.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.
 - **Expects**:
   - Array-like inputs only (`jnp.asarray`-compatible), not dataframe objects.
@@ -33,7 +33,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - Shared Optimistix adapter (`_optimistix_solver.py`) replaces legacy `_optimize.py` loops.
 - SGD/minibatch paths were removed; full-batch is the only supported optimization mode.
 - `MutVarSolver` centralizes result mapping from `optx.RESULTS` to `mut_var.contracts.RESULTS`.
-- Solver-step debug telemetry is surfaced through explicit callback parameters instead of in-domain logging.
+- Solver-step diagnostics are surfaced through explicit Optimistix-style `verbose` controls on solver APIs.
 
 ## Invariants
 - `Params.pi` remains simplex-normalized after each Riemannian update.

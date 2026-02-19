@@ -17,12 +17,14 @@ def to_inference_arrays(
     se_col: str,
 ) -> InferenceArrays:
     r"""**Arguments:**
+
     - `df`: Validated summary-statistics dataframe.
     - `af_col`: Effect-allele-frequency column name.
     - `beta_col`: Effect-size column name.
     - `se_col`: Standard-error column name.
 
     **Returns:**
+
     - `InferenceArrays` with JAX arrays for AF, beta, and variance (`se^2`).
     """
     af = jnp.asarray(df[af_col].to_jax())
@@ -51,6 +53,7 @@ def to_inference_arrays_cached(
     r"""Convert dataframe inputs with cache reuse.
 
     **Returns:**
+
     - `(arrays, cache_hit)`.
     """
     return cache.get_or_create(
