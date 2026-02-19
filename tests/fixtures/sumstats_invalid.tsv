@@ -1,0 +1,5 @@
+effect_allele_frequency	beta	standard_error
+1.10	0.02	0.04
+0.20	not-a-number	0.03
+0.30	0.01	0.00
+0.40	0.04	NaN
