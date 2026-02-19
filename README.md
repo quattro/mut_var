@@ -48,6 +48,21 @@ Core numerics APIs return `mut_var.Solution` with explicit `result` status and d
 `mut_var.cli` is the imperative shell (argument parsing, boundary validation, IO orchestration); it
 is not the numerics implementation module.
 
+## Curve Workflow Contract
+
+Curve fitting is split into:
+
+- Pure numerics: `mut_var.numerics.curve_fit`
+- Optional plotting adapter: `mut_var.plotting.curve_plots`
+- Orchestration workflow: `mut_var.curve.run_curve_workflow`
+
+Behavior guarantees:
+
+- Fit-only mode (`generate_plots=False` / `mutvar-curve --fit-only`) does not import plotting
+  adapters and produces no PNG side effects.
+- Plotting mode consumes precomputed fit outputs and only adds PNG side effects; fitted coefficients
+  remain unchanged.
+
 ## License
 
 `mut-var` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.
