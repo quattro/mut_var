@@ -63,6 +63,27 @@ Behavior guarantees:
 - Plotting mode consumes precomputed fit outputs and only adds PNG side effects; fitted coefficients
   remain unchanged.
 
+## Benchmark Procedure
+
+Run the reproducible runtime benchmark with:
+
+```console
+python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json
+```
+
+Output report schema guarantees:
+
+- `compile`: one-time compile-focused timing block.
+- `steady_state`: repeated-run timing block for runtime behavior.
+- `comparison`: includes `improvement_percent`, threshold, and pass/fail result.
+
+Interpretation rules:
+
+- Treat compile and steady-state metrics independently; do not combine them.
+- The acceptance gate requires `comparison.improvement_percent >= 20.0`.
+- Benchmark representativeness review is recorded in
+  `docs/reviews/benchmark-representativeness.md`.
+
 ## License
 
 `mut-var` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.
