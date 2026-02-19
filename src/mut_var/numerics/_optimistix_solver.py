@@ -45,7 +45,7 @@ def default_verbose(verbose: bool | Callable[..., None]) -> Callable[..., None]:
         return _default_no_verbose
     else:
         raise ValueError(
-            f"Unrecognized `verbose` of type {type(verbose)}. Accepted types are " "either booleans or callables."
+            f"Unrecognized `verbose` of type {type(verbose)}. Accepted types are either booleans or callables."
         )
 
 

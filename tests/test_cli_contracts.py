@@ -46,7 +46,7 @@ def test_missing_required_columns_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\n" "0.2\t0.1\n",
+        "effect_allele_frequency\tbeta\n0.2\t0.1\n",
     )
 
     code = cli.run_cli(["infer", str(path)])
@@ -63,7 +63,7 @@ def test_out_of_range_af_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\tstandard_error\n" "1.2\t0.1\t0.01\n",
+        "effect_allele_frequency\tbeta\tstandard_error\n1.2\t0.1\t0.01\n",
     )
 
     code = cli.run_cli(["infer", str(path)])
@@ -80,7 +80,7 @@ def test_non_positive_se_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\tstandard_error\n" "0.2\t0.1\t0.0\n",
+        "effect_allele_frequency\tbeta\tstandard_error\n0.2\t0.1\t0.0\n",
     )
 
     code = cli.run_cli(["infer", str(path)])
@@ -97,7 +97,7 @@ def test_invalid_maf_grid_returns_nonzero(monkeypatch, tmp_path):
     path = tmp_path / "sumstats.tsv"
     _write_sumstats(
         path,
-        "effect_allele_frequency\tbeta\tstandard_error\n" "0.2\t0.1\t0.01\n",
+        "effect_allele_frequency\tbeta\tstandard_error\n0.2\t0.1\t0.01\n",
     )
 
     code = cli.run_cli(

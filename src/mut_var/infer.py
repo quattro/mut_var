@@ -131,13 +131,13 @@ def _solver_debug_callback(
     and logs its keyword arguments via jax.debug.callback.
     """
 
-    def _verbose(**kwargs: Any) -> None:
+    def _verbose(**kwargs: tuple[str, Any]) -> None:
         if not kwargs:
             return
 
         # We build format + args outside the callback so only
         # concrete runtime values are transferred.
-        items = list(kwargs.items())
+        items = list(kwargs.values())
         fmt = ", ".join(f"{k}: %s" for k, _ in items)
         fmt = f"{stage} | {fmt}"
         args = tuple(v for _, v in items)
@@ -167,6 +167,7 @@ def run_inference_pipeline(
     r"""Run the high-level inference workflow from dataframe ingress to dataframe egress.
 
     **Arguments:**
+
     - `df`: Input summary-statistics dataframe.
     - `af_col`: AF column name.
     - `beta_col`: Effect-size column name.
@@ -179,9 +180,11 @@ def run_inference_pipeline(
     - `log`: Optional logger for workflow diagnostics.
 
     **Returns:**
+
     - Long-format inference dataframe suitable for downstream output.
 
     **Raises:**
+
     - `ValueError`: Boundary validation failure or invalid numerics result.
     - `RuntimeError`: Non-recoverable numerics failure.
     """
