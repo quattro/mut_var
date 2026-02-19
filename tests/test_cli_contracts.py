@@ -9,8 +9,7 @@ def _guard_numerics(monkeypatch):
     def _unexpected_call(*_args, **_kwargs):
         raise AssertionError("Numerics should not execute for boundary validation failures.")
 
-    monkeypatch.setattr(cli, "fit_baseline_mixture", _unexpected_call)
-    monkeypatch.setattr(cli, "fit_mixture", _unexpected_call)
+    monkeypatch.setattr(cli, "run_inference_pipeline", _unexpected_call)
 
 
 def _write_sumstats(path: Path, content: str) -> None:
