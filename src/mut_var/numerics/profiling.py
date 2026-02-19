@@ -18,6 +18,7 @@ class PerformanceGateResult(eqx.Module):
     passed: bool
 
     def to_dict(self) -> dict[str, float | bool]:
+        r"""Serialize performance-gate metrics to primitive dictionary values."""
         return {
             "baseline_seconds": self.baseline_seconds,
             "candidate_seconds": self.candidate_seconds,
@@ -32,6 +33,7 @@ def evaluate_performance_gate(
     candidate_seconds: float,
     threshold_percent: float = 20.0,
 ) -> PerformanceGateResult:
+    r"""Compute percent-improvement gate result between baseline and candidate timings."""
     if baseline_seconds <= 0.0:
         improvement = 0.0
     else:
@@ -49,6 +51,7 @@ def profile_solution_runs(
     run_once: Callable[[], Solution],
     steady_runs: int = 3,
 ) -> dict[str, object]:
+    r"""Profile compile and steady-state runtime of a `Solution`-returning callable."""
     if steady_runs < 1:
         raise ValueError("steady_runs must be >= 1")
 

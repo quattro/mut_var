@@ -17,6 +17,14 @@ jax.config.update("jax_enable_x64", True)
 
 
 def get_logger(name: str) -> logging.Logger:
+    r"""Create or reuse a stderr logger for CLI diagnostics.
+
+    **Arguments:**
+    - `name`: Logger namespace.
+
+    **Returns:**
+    - Configured logger with stderr stream handler.
+    """
     logger = logging.getLogger(name)
     logger.propagate = False
     if not logger.handlers:
@@ -75,6 +83,7 @@ def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
 
 
 def build_parser() -> ap.ArgumentParser:
+    r"""Build the `mutvar` CLI parser with `infer` and `curve` subcommands."""
     parser = ap.ArgumentParser(description="")
     subparsers = parser.add_subparsers(dest="command", required=True)
     _build_infer_subcommand(subparsers)
@@ -92,6 +101,15 @@ def _output_target(output_stream: TextIO) -> str:
 
 
 def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
+    r"""Run the CLI inference workflow.
+
+    **Arguments:**
+    - `args`: Parsed CLI arguments for `infer`.
+    - `log`: Logger used for diagnostics.
+
+    **Returns:**
+    - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
+    """
     try:
         log.info("infer: loading data from '%s'", args.sumstats)
         df = read_sumstats(args.sumstats)
@@ -131,6 +149,15 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
 
 
 def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
+    r"""Run the CLI curve-fitting workflow.
+
+    **Arguments:**
+    - `args`: Parsed CLI arguments for `curve`.
+    - `log`: Logger used for diagnostics.
+
+    **Returns:**
+    - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
+    """
     try:
         log.info("curve: starting curve pipeline")
         coef_df = run_curve_pipeline(args.data, generate_plots=not args.fit_only, log=log)
@@ -149,6 +176,14 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
+    r"""CLI entrypoint used by console scripts.
+
+    **Arguments:**
+    - `argv`: Optional argument vector; defaults to `sys.argv[1:]`.
+
+    **Returns:**
+    - Process exit code.
+    """
     raw_args = sys.argv[1:] if argv is None else list(argv)
     log = get_logger(__name__)
     log.setLevel(logging.INFO)

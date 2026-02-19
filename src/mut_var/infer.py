@@ -52,6 +52,27 @@ def run_inference_pipeline(
     config: InferenceConfig | None = None,
     log: logging.Logger | None = None,
 ) -> pl.DataFrame:
+    r"""Run the high-level inference workflow from dataframe ingress to dataframe egress.
+
+    **Arguments:**
+    - `df`: Input summary-statistics dataframe.
+    - `af_col`: AF column name.
+    - `beta_col`: Effect-size column name.
+    - `se_col`: Standard-error column name.
+    - `lowest`: Minimum MAF threshold for grid construction.
+    - `highest`: Maximum MAF threshold for grid construction.
+    - `num_breaks`: Number of MAF grid breakpoints.
+    - `seed`: PRNG seed for baseline initialization.
+    - `config`: Optional numerics config; defaults to `InferenceConfig(num_clusters=30)`.
+    - `log`: Optional logger for workflow diagnostics.
+
+    **Returns:**
+    - Long-format inference dataframe suitable for downstream output.
+
+    **Raises:**
+    - `ValueError`: Boundary validation failure or invalid numerics result.
+    - `RuntimeError`: Non-recoverable numerics failure.
+    """
     workflow_log = logging.getLogger(__name__) if log is None else log
 
     workflow_log.info("inference pipeline: validating input data")

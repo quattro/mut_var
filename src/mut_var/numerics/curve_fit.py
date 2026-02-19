@@ -9,6 +9,7 @@ from mut_var.contracts import RESULTS, Solution
 
 
 def curve(maf: ArrayLike, coef: ArrayLike):
+    r"""Evaluate the three-parameter curve model over MAF inputs."""
     left_asym, right_asym, rate = coef
     return left_asym + (right_asym - left_asym) / (1.0 + jnp.power(maf, rate))
 
@@ -19,6 +20,20 @@ def _objective(coef, args):
 
 
 def fit_curve(maf: ArrayLike, value: ArrayLike) -> Solution:
+    r"""Fit curve coefficients with Levenberg-Marquardt least squares.
+
+    **Arguments:**
+    - `maf`: 1D MAF values.
+    - `value`: 1D target values aligned with `maf`.
+
+    **Returns:**
+    - `Solution` with fitted coefficients in `value`.
+
+    **Failure Modes:**
+    - `RESULTS.invalid_input` for conversion, shape, or non-finite validation failures.
+    - `RESULTS.empty_subset` for empty inputs.
+    - `RESULTS.nonfinite_objective` for solver failures or non-finite coefficients.
+    """
     try:
         maf_arr = jnp.asarray(maf)
         value_arr = jnp.asarray(value)

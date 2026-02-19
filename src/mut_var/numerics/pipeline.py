@@ -30,6 +30,7 @@ class InferenceConfig(NamedTuple):
     penalty: float = 1.0
 
     def to_baseline_config(self) -> BaselineConfig:
+        r"""Convert pipeline controls to baseline-stage solver config."""
         return BaselineConfig(
             num_clusters=self.num_clusters,
             max_iter=self.max_iter,
@@ -38,6 +39,7 @@ class InferenceConfig(NamedTuple):
         )
 
     def to_refit_config(self) -> RefitConfig:
+        r"""Convert pipeline controls to refit-stage solver config."""
         return RefitConfig(
             penalty=self.penalty,
             max_iter=self.max_iter,
@@ -92,6 +94,18 @@ def run_inference_pipeline(
     seed: int,
     config: InferenceConfig,
 ) -> Solution:
+    r"""Run numerics-only inference (baseline -> refit -> payload build).
+
+    **Arguments:**
+    - `arrays`: Array inputs for AF, beta, and variance.
+    - `maf_grid`: MAF threshold grid.
+    - `maf_masks`: Boolean mask matrix aligned with observations.
+    - `seed`: PRNG seed for baseline initialization.
+    - `config`: Pipeline solver controls.
+
+    **Returns:**
+    - `Solution` carrying long-format payload mapping and status diagnostics.
+    """
     beta_hat = jnp.asarray(arrays.beta_hat)
     s2 = jnp.asarray(arrays.s2)
 
@@ -140,6 +154,7 @@ def run_profiled_inference_pipeline(
     config: InferenceConfig,
     steady_runs: int = 3,
 ) -> dict[str, object]:
+    r"""Profile compile and steady-state timings for inference numerics pipeline."""
     return profile_solution_runs(
         lambda: run_inference_pipeline(
             arrays=arrays,

@@ -13,20 +13,24 @@ RECOVERABLE_RESULTS = (RESULTS.successful, RESULTS.max_steps_reached)
 
 
 def is_recoverable_result(result: RESULTS) -> bool:
+    r"""Return whether a status is recoverable for staged numerics pipelines."""
     return result in RECOVERABLE_RESULTS
 
 
 def merge_recoverable_results(*results: RESULTS) -> RESULTS:
+    r"""Merge recoverable statuses, preferring `max_steps_reached` when present."""
     if any(result == RESULTS.max_steps_reached for result in results):
         return cast(RESULTS, RESULTS.max_steps_reached)
     return cast(RESULTS, RESULTS.successful)
 
 
 def is_nonfinite(value: ArrayLike) -> bool:
+    r"""Return `True` when any value is non-finite."""
     return not bool(jnp.isfinite(jnp.asarray(value)).all())
 
 
 def simplex_tangent_direction(pi: Array, direction: Array) -> Array:
+    r"""Project an unconstrained direction onto the simplex tangent space."""
     return pi * (direction - (direction @ pi))
 
 
@@ -35,6 +39,7 @@ def exponential_map_simplex(
     tangent_direction: Array,
     step_size: float,
 ) -> Array:
+    r"""Move simplex parameters along a tangent direction via exponential map."""
     s = jnp.sqrt(jnp.sum(tangent_direction**2) / pi)
     c = jnp.cos(0.5 * step_size * s)
     s2 = jnp.sin(0.5 * step_size * s)

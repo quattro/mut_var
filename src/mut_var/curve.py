@@ -38,6 +38,21 @@ def run_curve_pipeline(
     generate_plots: bool,
     log: logging.Logger | None = None,
 ) -> pl.DataFrame:
+    r"""Run curve fitting for each `var0` group from tabular input.
+
+    **Arguments:**
+    - `input_path`: Tab-delimited input path with `maf`, `value`, and `var0` columns.
+    - `generate_plots`: When `True`, render one PNG per `var0` group.
+    - `log`: Optional logger for workflow diagnostics.
+
+    **Returns:**
+    - Coefficient dataframe (`var0`, `coef_left`, `coef_right`, `coef_rate`).
+
+    **Raises:**
+    - `FileNotFoundError`: Input path does not exist.
+    - `ValueError`: Input schema/content invalid or invalid-fit status.
+    - `RuntimeError`: Non-recoverable fitting failure.
+    """
     workflow_log = logging.getLogger(__name__) if log is None else log
 
     workflow_log.info("curve pipeline: loading input data from '%s'", input_path)

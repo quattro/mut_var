@@ -46,6 +46,7 @@ def penalized_objective(
     baseline_param: Params,
     penalty: ArrayLike,
 ):
+    r"""Evaluate penalized refit objective over threshold-weighted likelihoods."""
     mixture_pdf = jnp.clip(likelihoods @ param.pi, min=jnp.finfo(float).tiny)
     obj_term = jnp.sum(weights * jnp.log(mixture_pdf))
     log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
@@ -181,6 +182,24 @@ def fit_refit_grid(
     init: Params,
     config: RefitConfig,
 ) -> Solution:
+    r"""Sequentially refit mixture weights across MAF-threshold masks.
+
+    **Arguments:**
+    - `beta_hat`: 1D effect-size estimates.
+    - `s2`: 1D positive variances aligned with `beta_hat`.
+    - `maf_masks`: 2D boolean masks selecting observations per threshold.
+    - `init`: Initial parameters from baseline fit.
+    - `config`: Refit solver controls.
+
+    **Returns:**
+    - `Solution` with one fitted model per threshold (plus initial model).
+
+    **Failure Modes:**
+    - `RESULTS.invalid_input` for shape/mask mismatches.
+    - `RESULTS.empty_subset` for empty threshold slices.
+    - `RESULTS.nonfinite_objective` for non-finite objective values.
+    - `RESULTS.max_steps_reached` when any threshold solve does not converge in time.
+    """
     beta_hat_arr = jnp.asarray(beta_hat)
     s2_arr = jnp.asarray(s2)
     masks_arr = jnp.asarray(maf_masks, dtype=bool)

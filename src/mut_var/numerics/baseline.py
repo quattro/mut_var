@@ -53,6 +53,17 @@ def baseline_objective(
     s2: ArrayLike,
     alpha: ArrayLike,
 ):
+    r"""Evaluate the baseline penalized log-likelihood objective.
+
+    **Arguments:**
+    - `param`: Current mixture parameters.
+    - `beta_hat`: Observed effect-size estimates.
+    - `s2`: Observation variances.
+    - `alpha`: Dirichlet prior concentration vector for mixture weights.
+
+    **Returns:**
+    - Scalar objective value to maximize.
+    """
     log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
     pi = param.pi
     log_likelihood = jnp.sum(
@@ -70,6 +81,7 @@ def baseline_objective_lse(
     s2: ArrayLike,
     alpha: ArrayLike,
 ):
+    r"""Numerically stable baseline objective variant using log-sum-exp."""
     log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
     pi = param.pi
     log_likes = jnp.concatenate(
@@ -199,6 +211,23 @@ def fit_baseline(
     key: rdm.PRNGKey,
     config: BaselineConfig,
 ) -> Solution:
+    r"""Fit baseline mixture parameters with Optimistix full-batch descent.
+
+    **Arguments:**
+    - `beta_hat`: 1D effect-size estimates.
+    - `s2`: 1D positive variances aligned with `beta_hat`.
+    - `key`: JAX PRNG key used for simplex initialization.
+    - `config`: Baseline solver controls.
+
+    **Returns:**
+    - `Solution` carrying fitted `Params` and status diagnostics.
+
+    **Failure Modes:**
+    - `RESULTS.invalid_input` for shape/domain violations.
+    - `RESULTS.empty_subset` for empty arrays.
+    - `RESULTS.nonfinite_objective` when objective evaluation is non-finite.
+    - `RESULTS.max_steps_reached` when convergence tolerance is not met.
+    """
     invalid = _validate_inputs(beta_hat, s2, config)
     if invalid is not None:
         return invalid

@@ -23,4 +23,5 @@ class Solution(eqx.Module):
 
     @property
     def ok(self) -> bool:
+        r"""Return `True` only when `result` is `RESULTS.successful`."""
         return bool(self.result == RESULTS.successful)

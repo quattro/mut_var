@@ -10,6 +10,18 @@ import polars as pl
 
 
 def read_sumstats(path: str) -> pl.DataFrame:
+    r"""Read tab-delimited summary statistics from disk.
+
+    **Arguments:**
+    - `path`: Input TSV path.
+
+    **Returns:**
+    - Loaded dataframe.
+
+    **Raises:**
+    - `FileNotFoundError`: Path does not exist.
+    - `ValueError`: File cannot be parsed as expected TSV input.
+    """
     input_path = Path(path)
     if not input_path.exists():
         raise FileNotFoundError(f"input file does not exist: {path}")
@@ -26,6 +38,7 @@ def validate_required_columns(
     beta_col: str,
     se_col: str,
 ) -> None:
+    r"""Validate presence of required AF, beta, and standard-error columns."""
     required = [af_col, beta_col, se_col]
     missing = [name for name in required if name not in df.columns]
     if missing:
@@ -60,11 +73,13 @@ def validate_numeric_columns(
     beta_col: str,
     se_col: str,
 ) -> None:
+    r"""Validate that AF/beta/SE columns are numeric, non-null, and finite."""
     for name in (af_col, beta_col, se_col):
         _as_numeric_column(df, name)
 
 
 def validate_sumstats_domain(df: pl.DataFrame, af_col: str, se_col: str) -> None:
+    r"""Validate domain constraints (`AF in [0, 1]`, `SE > 0`)."""
     af = _as_numeric_column(df, af_col)
     se = _as_numeric_column(df, se_col)
 
@@ -82,6 +97,7 @@ def validate_sumstats_domain(df: pl.DataFrame, af_col: str, se_col: str) -> None
 
 
 def validate_maf_grid(lowest: Any, highest: Any, num_breaks: Any) -> None:
+    r"""Validate MAF grid configuration at ingress boundaries."""
     try:
         lowest_val = float(lowest)
         highest_val = float(highest)
@@ -102,6 +118,7 @@ def validate_maf_grid(lowest: Any, highest: Any, num_breaks: Any) -> None:
 
 
 def dataframe_fingerprint(df: pl.DataFrame, columns: list[str]) -> str:
+    r"""Build a stable content fingerprint for selected dataframe columns."""
     hasher = hashlib.sha256()
     hasher.update(str(df.height).encode("utf-8"))
     hasher.update(str(df.width).encode("utf-8"))
