@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import jax.random as rdm
 import numpy as np
@@ -11,6 +12,7 @@ from jaxtyping import ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics.baseline import BaselineConfig, Params, fit_baseline
+from mut_var.numerics.profiling import profile_solution_runs
 from mut_var.numerics.refit import RefitConfig, fit_refit_grid
 
 
@@ -77,6 +79,7 @@ def run_inference_pipeline(
     seed: int,
     config: InferenceConfig,
 ) -> Solution:
+    jax.config.update("jax_enable_x64", True)
     beta_hat = jnp.asarray(arrays.beta_hat)
     s2 = jnp.asarray(arrays.s2)
 
@@ -129,4 +132,24 @@ def run_inference_pipeline(
             "refit": refit_solution.stats,
         },
         state=None,
+    )
+
+
+def run_profiled_inference_pipeline(
+    arrays: InferenceArrays,
+    maf_grid: ArrayLike,
+    maf_masks: ArrayLike,
+    seed: int,
+    config: InferenceConfig,
+    steady_runs: int = 3,
+) -> dict[str, object]:
+    return profile_solution_runs(
+        lambda: run_inference_pipeline(
+            arrays=arrays,
+            maf_grid=maf_grid,
+            maf_masks=maf_masks,
+            seed=seed,
+            config=config,
+        ),
+        steady_runs=steady_runs,
     )

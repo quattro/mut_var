@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 
 import jax
 import jax.nn as nn
@@ -49,11 +50,13 @@ def _exponential_map_simplex(
 def penalized_objective(
     param: Params,
     likelihoods: ArrayLike,
+    weights: ArrayLike,
     alpha: ArrayLike,
     baseline_param: Params,
     penalty: ArrayLike,
 ):
-    obj_term = jnp.sum(jnp.log(likelihoods @ param.pi))
+    mixture_pdf = jnp.clip(likelihoods @ param.pi, min=jnp.finfo(float).tiny)
+    obj_term = jnp.sum(weights * jnp.log(mixture_pdf))
     log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
 
     p1 = jnp.sum(
@@ -69,15 +72,28 @@ def penalized_objective(
 
 def _fit_single_refit(
     likelihoods: ArrayLike,
+    weights: ArrayLike,
     init: Params,
     config: RefitConfig,
+    vg_f,
+    obj,
 ) -> Solution:
     likelihoods_arr = jnp.asarray(likelihoods)
+    weights_arr = jnp.asarray(weights)
+
     if likelihoods_arr.ndim != 2:
         return Solution(
             value=init,
             result=RESULTS.invalid_input,
             stats={"reason": "likelihoods must be a 2D array"},
+            state=None,
+        )
+
+    if weights_arr.ndim != 1 or weights_arr.shape[0] != likelihoods_arr.shape[0]:
+        return Solution(
+            value=init,
+            result=RESULTS.invalid_input,
+            stats={"reason": "weights must be 1D and aligned with likelihood rows"},
             state=None,
         )
 
@@ -89,11 +105,16 @@ def _fit_single_refit(
             state=None,
         )
 
+    if int(jnp.sum(weights_arr > 0.0)) == 0:
+        return Solution(
+            value=init,
+            result=RESULTS.empty_subset,
+            stats={"reason": "all threshold weights are zero"},
+            state=None,
+        )
+
     alpha = jnp.array([10.0] + (len(init.pi) - 1) * [1.0])
     params = Params(jnp.asarray(init.pi), jnp.asarray(init.mu_k), jnp.asarray(init.var_k))
-
-    vg_f = jax.jit(jax.value_and_grad(penalized_objective))
-    obj = jax.jit(penalized_objective)
 
     ologlike = -1e10
     start = config.step_size
@@ -103,13 +124,13 @@ def _fit_single_refit(
 
     for epoch in range(config.max_iter):
         epochs = epoch + 1
-        _, direction = vg_f(params, likelihoods_arr, alpha, init, config.penalty)
+        _, direction = vg_f(params, likelihoods_arr, weights_arr, alpha, init, config.penalty)
         step_size = start
         for _ in range(20):
             tangent_pi = params.pi * (direction.pi - (direction.pi @ params.pi))
             pi = _exponential_map_simplex(params.pi, tangent_pi, step_size)
             candidate = Params(pi, params.mu_k, params.var_k)
-            nloglike = obj(candidate, likelihoods_arr, alpha, init, config.penalty)
+            nloglike = obj(candidate, likelihoods_arr, weights_arr, alpha, init, config.penalty)
             diff = nloglike - ologlike
             if bool(diff < 0) or bool(jnp.isnan(nloglike)) or bool(jnp.isinf(nloglike)):
                 step_size *= 0.5
@@ -138,6 +159,8 @@ def _fit_single_refit(
             "epoch_count": epochs,
             "objective": float(ologlike),
             "converged": converged,
+            "n_obs_used": int(jnp.sum(weights_arr > 0.0)),
+            "likelihood_shape": tuple(int(x) for x in likelihoods_arr.shape),
         },
         state=None,
     )
@@ -170,12 +193,18 @@ def fit_refit_grid(
             state=None,
         )
 
+    vg_f = jax.jit(jax.value_and_grad(penalized_objective))
+    obj = jax.jit(penalized_objective)
+
     models = [init]
     any_max_steps = False
+    threshold_diagnostics: list[dict[str, int | float | tuple[int, int]]] = []
+    total_elapsed = 0.0
 
     for idx in range(masks_arr.shape[0]):
-        mask = masks_arr[idx]
-        if int(mask.sum()) == 0:
+        weights = masks_arr[idx].astype(jnp.float64)
+        n_obs = int(jnp.sum(weights))
+        if n_obs == 0:
             return Solution(
                 value=models,
                 result=RESULTS.empty_subset,
@@ -183,14 +212,15 @@ def fit_refit_grid(
                 state=None,
             )
 
-        subset_beta = beta_hat_arr[mask]
-        subset_s2 = s2_arr[mask]
-
         mu_k = jnp.pad(models[-1].mu_k, (1, 0))
         var_k = jnp.pad(models[-1].var_k, (1, 0))
-        likelihoods = pdf(subset_beta, subset_s2, mu_k, var_k)
+        likelihoods = pdf(beta_hat_arr, s2_arr, mu_k, var_k)
 
-        fit_solution = _fit_single_refit(likelihoods, models[-1], config)
+        start = perf_counter()
+        fit_solution = _fit_single_refit(likelihoods, weights, models[-1], config, vg_f, obj)
+        elapsed = perf_counter() - start
+        total_elapsed += elapsed
+
         if fit_solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
             return Solution(
                 value=models,
@@ -201,12 +231,22 @@ def fit_refit_grid(
         if fit_solution.result == RESULTS.max_steps_reached:
             any_max_steps = True
 
+        diag = dict(fit_solution.stats)
+        diag["threshold_index"] = idx
+        diag["elapsed_seconds"] = elapsed
+        threshold_diagnostics.append(diag)
+
         models.append(fit_solution.value)
 
     result = RESULTS.max_steps_reached if any_max_steps else RESULTS.successful
     return Solution(
         value=models,
         result=result,
-        stats={"num_models": len(models), "num_thresholds": int(masks_arr.shape[0])},
+        stats={
+            "num_models": len(models),
+            "num_thresholds": int(masks_arr.shape[0]),
+            "total_refit_seconds": total_elapsed,
+            "threshold_diagnostics": threshold_diagnostics,
+        },
         state=None,
     )
