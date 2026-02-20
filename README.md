@@ -106,7 +106,7 @@ Behavior guarantees:
 
 ## Migration Guide
 
-This release is a breaking hardening release. Migration summary:
+This release is a breaking release. Migration summary:
 
 1. Replace direct imports of legacy CLI internals with package-root pipeline APIs.
 2. Use dataframe pipeline APIs (`run_inference_pipeline`, `run_curve_pipeline`) at the orchestration boundary.
@@ -121,27 +121,13 @@ Human migration review artifact: `docs/reviews/migration-guide-signoff.md`.
 Supported import paths are listed in `docs/api.md`.
 Migration-guide sign-off decision: `approved (2026-02-19)`.
 
-## Benchmark Procedure
+## Performance Profiling Status
 
-Run the reproducible runtime benchmark with:
+Performance profiling is currently out of scope for supported workflows in this repository.
 
-```console
-python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json
-```
-
-Output report schema guarantees:
-
-- `compile`: one-time compile-focused timing block.
-- `steady_state`: repeated-run timing block for runtime behavior.
-- `comparison`: includes `improvement_percent`, threshold, and pass/fail result.
-
-Interpretation rules:
-
-- Treat compile and steady-state metrics independently; do not combine them.
-- When evaluating with `scripts/check_release_gate.py`, the acceptance gate requires
-  `comparison.improvement_percent >= 20.0`.
-- Benchmark representativeness review is recorded in
-  `docs/reviews/benchmark-representativeness.md`.
+- CI and release-readiness gates do not require benchmark execution.
+- The canonical quality gates are linting, type checking, and tests.
+- Historical benchmark review documents are retained for recordkeeping only.
 
 ## CI Gates
 
@@ -151,21 +137,11 @@ Required checks (local and CI must match):
 - `mypy src/mut_var tests`
 - `pytest -p no:capture`
 
-Algorithm-scope constraint:
-
-- Changes must remain targeted to validation/orchestration/performance hardening.
-- Wholesale objective/model redesign is explicitly out of scope and requires separate design review.
-
 Release-readiness quick check:
 
 - `ruff check src/mut_var tests`
 - `mypy src/mut_var tests`
 - `pytest -p no:capture`
-
-Optional performance validation:
-
-- `python benchmarks/infer_runtime.py --config benchmarks/config/runtime_baseline.json --output benchmarks/results/latest.json`
-- `python scripts/check_release_gate.py --report benchmarks/results/latest.json`
 
 ## License
 
