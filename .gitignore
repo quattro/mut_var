@@ -2,6 +2,9 @@
 src/mut_var/_version.py
 
 data/
+site/
+
+tmp
 
 # Temporary and binary files
 *~
