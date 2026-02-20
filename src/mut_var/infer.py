@@ -123,7 +123,7 @@ def _payload_from_solution(solution: Solution) -> Mapping[str, object]:
 def _solver_debug_callback(
     workflow_log: logging.Logger,
     stage: str,
-) -> Callable[[ArrayLike, ArrayLike, ArrayLike], None] | None:
+) -> bool | Callable[..., None]:
     if not workflow_log.isEnabledFor(logging.DEBUG):
         return False
     """

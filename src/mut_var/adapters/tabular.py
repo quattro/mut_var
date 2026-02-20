@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 import polars as pl
 
-from mut_var.adapters.array_cache import ArrayConversionCache
 from mut_var.infer import InferenceArrays
 
 
@@ -40,28 +39,6 @@ def build_maf_masks(af: jax.Array, maf_grid: jax.Array) -> jax.Array:
     return jnp.logical_and(
         af_arr[jnp.newaxis, :] >= maf_arr[:, jnp.newaxis],
         af_arr[jnp.newaxis, :] <= (1.0 - maf_arr[:, jnp.newaxis]),
-    )
-
-
-def to_inference_arrays_cached(
-    df: pl.DataFrame,
-    af_col: str,
-    beta_col: str,
-    se_col: str,
-    cache: ArrayConversionCache,
-) -> tuple[InferenceArrays, bool]:
-    r"""Convert dataframe inputs with cache reuse.
-
-    **Returns:**
-
-    - `(arrays, cache_hit)`.
-    """
-    return cache.get_or_create(
-        df=df,
-        af_col=af_col,
-        beta_col=beta_col,
-        se_col=se_col,
-        converter=to_inference_arrays,
     )
 
 
