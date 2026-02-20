@@ -150,3 +150,40 @@ def test_fit_refit_grid_uses_optimistix_solver_path_by_default():
 def test_refit_config_no_longer_exposes_solver_backend_knob():
     with pytest.raises(TypeError):
         cast(Any, RefitConfig)(solver_backend="optimistix")
+
+
+def test_fit_refit_grid_computes_likelihoods_once(monkeypatch):
+    beta_hat = jnp.array([0.05, -0.03, 0.01, 0.02, -0.01])
+    s2 = jnp.array([0.01, 0.015, 0.02, 0.013, 0.011])
+    maf_masks = jnp.array(
+        [
+            [True, True, True, True, True],
+            [True, True, False, True, False],
+            [True, False, False, True, False],
+        ],
+        dtype=bool,
+    )
+    init = baseline.Params(
+        pi=jnp.array([0.8, 0.2]),
+        mu_k=jnp.array([0.0]),
+        var_k=jnp.array([1.0]),
+    )
+    call_count = 0
+    original_pdf = refit.pdf
+
+    def _counting_pdf(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return original_pdf(*args, **kwargs)
+
+    monkeypatch.setattr(refit, "pdf", _counting_pdf)
+    solution = refit.fit_refit_grid(
+        beta_hat=beta_hat,
+        s2=s2,
+        maf_masks=maf_masks,
+        init=init,
+        config=RefitConfig(max_iter=5, step_size=0.5),
+    )
+
+    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
+    assert call_count == 1

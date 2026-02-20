@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # pattern: Functional Core
-from time import perf_counter
 from typing import Any, Callable, NamedTuple
 
 import equinox as eqx
@@ -229,10 +228,19 @@ def fit_refit_grid(
     models = [init]
     any_max_steps = False
     threshold_diagnostics: list[dict[str, int | float | tuple[int, int]]] = []
-    total_elapsed = 0.0
+    active_observations = jnp.any(masks_arr, axis=0)
+    beta_hat_active = beta_hat_arr[active_observations]
+    s2_active = s2_arr[active_observations]
+    masks_active = masks_arr[:, active_observations]
+
+    # Refit stage optimizes mixture weights only, so component means/variances
+    # are fixed across threshold solves and likelihoods can be cached once.
+    mu_k = jnp.pad(init.mu_k, (1, 0))
+    var_k = jnp.pad(init.var_k, (1, 0))
+    likelihoods = pdf(beta_hat_active, s2_active, mu_k, var_k)
 
     for idx in range(masks_arr.shape[0]):
-        weights = masks_arr[idx].astype(jnp.float64)
+        weights = masks_active[idx].astype(jnp.float64)
         n_obs = int(jnp.sum(weights))
         if n_obs == 0:
             return Solution(
@@ -242,14 +250,7 @@ def fit_refit_grid(
                 state=None,
             )
 
-        mu_k = jnp.pad(models[-1].mu_k, (1, 0))
-        var_k = jnp.pad(models[-1].var_k, (1, 0))
-        likelihoods = pdf(beta_hat_arr, s2_arr, mu_k, var_k)
-
-        start = perf_counter()
         fit_solution = _fit_single_refit(likelihoods, weights, models[-1], config, obj, verbose)
-        elapsed = perf_counter() - start
-        total_elapsed += elapsed
 
         if not is_recoverable_result(fit_solution.result):
             return Solution(
@@ -263,7 +264,6 @@ def fit_refit_grid(
 
         diag = dict(fit_solution.stats)
         diag["threshold_index"] = idx
-        diag["elapsed_seconds"] = elapsed
         threshold_diagnostics.append(diag)
 
         models.append(fit_solution.value)
@@ -275,7 +275,6 @@ def fit_refit_grid(
         stats={
             "num_models": len(models),
             "num_thresholds": int(masks_arr.shape[0]),
-            "total_refit_seconds": total_elapsed,
             "threshold_diagnostics": threshold_diagnostics,
         },
         state=None,
