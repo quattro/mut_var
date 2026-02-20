@@ -60,8 +60,8 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, ca
     )
 
     messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
-    assert any("baseline | num_steps:" in message for message in messages)
-    assert any("refit | num_steps:" in message for message in messages)
+    assert any("baseline | Step:" in message for message in messages)
+    assert any("refit | Step:" in message for message in messages)
 
 
 def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_df, monkeypatch):
