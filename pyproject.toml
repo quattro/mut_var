@@ -40,6 +40,16 @@ Documentation = "https://github.com/quattro/mut-var#readme"
 Issues = "https://github.com/quattro/mut-var/issues"
 Source = "https://github.com/quattro/mut-var"
 
+[project.optional-dependencies]
+docs = [
+  "hippogriffe==0.2.2",
+  "mkdocs==1.6.1",
+  "mkdocs-include-exclude-files==0.1.0",
+  "mkdocs-material==9.7.1",
+  "mkdocstrings[python]==2.0.2",
+  "pymdown-extensions==10.21"
+]
+
 [tool.hatch.metadata]
 allow-direct-references = true
 
