@@ -1,21 +1,22 @@
 # mut_var
 
-Last verified: 2026-02-19
+Last verified: 2026-02-26
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.
 
 ## Contracts
 - **Exposes**:
-  - CLI entrypoint: `mutvar` (`infer`, `curve`)
-  - Package-root pipeline APIs: `run_inference_pipeline`, `run_curve_pipeline`
-  - Numerics APIs: `mut_var.numerics.fit_baseline`, `mut_var.numerics.fit_curve`, `mut_var.numerics.fit_refit_grid`
-  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.numerics.InferenceArrays`, `mut_var.numerics.InferenceConfig`
+  - CLI entrypoint: `mutvar` (`infer`, `curve`, `simulate`)
+  - Package-root pipeline APIs: `run_inference_pipeline`, `run_curve_pipeline`, `run_simulation_pipeline`
+  - Numerics APIs: `mut_var.numerics.fit_baseline`, `mut_var.numerics.fit_curve`, `mut_var.numerics.fit_refit_grid`, `mut_var.numerics.simulate_mixture_data`
+  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.numerics.InferenceArrays`, `mut_var.numerics.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.numerics.SimulationNumericsConfig`, `mut_var.SimulationPipelineConfig`, `mut_var.SimulationArtifacts`
 - **Guarantees**:
   - Boundary validation happens at ingress before numerics execute.
   - Pipeline/orchestration APIs accept validated dataframe or array-like inputs and return dataframe outputs for downstream writing/processing.
   - Numerics APIs return `Solution` objects and use `Solution.result` as the canonical status signal.
   - Contracts above numerics do not expose `Solution`; they normalize outputs to tabular/dataframe forms.
+  - Simulation pipeline APIs return dataframe artifacts (`truth`, `observed`, `metadata`) and keep file writes in CLI/orchestration shells.
   - Baseline/refit numerics run through Optimistix-based optimization with full-batch objective updates only.
   - Numerics objective wrappers use `equinox.filter_jit` for JIT staging.
   - Orchestration/input errors use built-in exception types (`ValueError`, `FileNotFoundError`, `RuntimeError`) instead of custom error hierarchies.
@@ -25,6 +26,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Input data includes required AF/BETA/SE fields (or explicit column overrides).
   - Domain constraints hold (`effect_allele_frequency` in `[0,1]`, `standard_error > 0`).
   - Grid constraints hold (`0 < lowest < highest <= 0.5`, `num_breaks >= 2`).
+  - Simulation config constraints hold (mixture weights/scales align, weights sum to `1`, AF/SE model parameters stay in documented domains).
 
 ## Dependencies
 - **Uses**: `jax`, `equinox`, `optimistix`, `polars`, `jaxtyping`, `matplotlib` (plotting path).
@@ -58,6 +60,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `pip install -e .`
 - `mutvar infer <sumstats.tsv> [options]`
 - `mutvar curve <mutvar-output.tsv> [--fit-only]`
+- `mutvar simulate --output-prefix <prefix> [options]`
 - `ruff check src/mut_var tests`
 - `mypy src/mut_var tests`
 - `pytest -p no:capture`
@@ -84,4 +87,5 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - Importing internals from `mut_var.cli` is unsupported; use package-root APIs.
 - Treat `Solution.result` (not presence of `value`) as the success signal for numerics APIs.
 - `mutvar infer` no longer accepts `--batch-size`; numerics are full-batch by contract.
+- `mutvar simulate` writes three files (`.truth.tsv`, `.observed.tsv`, `.meta.tsv`) and does not stream tabular output to stdout.
 - Keep algorithm changes targeted; broad model redesign requires separate design review.

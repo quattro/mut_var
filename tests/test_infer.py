@@ -12,6 +12,8 @@ import mut_var.numerics as numerics
 from mut_var.adapters.tabular import to_inference_arrays
 from mut_var.contracts import RESULTS, Solution
 from mut_var.infer import InferenceConfig, run_inference_pipeline as run_inference_dataframe_pipeline
+from mut_var.numerics import SimulationNumericsConfig
+from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
 
 
 def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
@@ -167,3 +169,56 @@ def test_numerics_module_owns_numerics_entrypoint():
     assert infer_module.InferenceArrays is numerics.InferenceArrays
     assert infer_module.InferenceConfig is numerics.InferenceConfig
     assert not hasattr(numerics, "run_inference_pipeline")
+
+
+def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeypatch):
+    import mut_var.numerics.baseline as baseline_module
+    import mut_var.numerics.refit as refit_module
+
+    baseline_params = baseline_module.Params(
+        pi=jnp.asarray([0.9, 0.1], dtype=jnp.float64),
+        mu_k=jnp.asarray([0.0], dtype=jnp.float64),
+        var_k=jnp.asarray([1e-4], dtype=jnp.float64),
+    )
+
+    monkeypatch.setattr(
+        baseline_module,
+        "fit_baseline",
+        lambda **_kwargs: Solution(
+            value=baseline_params,
+            result=RESULTS.successful,
+            stats={"objective": 0.0},
+            state=None,
+        ),
+    )
+    monkeypatch.setattr(
+        refit_module,
+        "fit_refit_grid",
+        lambda **_kwargs: Solution(
+            value=[baseline_params, baseline_params, baseline_params],
+            result=RESULTS.successful,
+            stats={"num_models": 3},
+            state=None,
+        ),
+    )
+
+    artifacts = run_simulation_pipeline(
+        config=SimulationPipelineConfig(
+            n_rows=128,
+            seed=0,
+            numerics=SimulationNumericsConfig(weights=(0.9, 0.1), log_var_scales=(-8.0, -5.5)),
+        )
+    )
+
+    result_df = run_inference_dataframe_pipeline(
+        artifacts.observed,
+        seed=0,
+        lowest=1e-3,
+        highest=5e-3,
+        num_breaks=2,
+        config=InferenceConfig(num_clusters=2, max_iter=5, step_size=0.5),
+    )
+
+    assert isinstance(result_df, pl.DataFrame)
+    assert result_df.height > 0
+    assert result_df.columns == ["mu0", "var0", "maf", "name", "value"]

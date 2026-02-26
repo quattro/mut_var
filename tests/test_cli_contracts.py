@@ -38,6 +38,7 @@ def test_run_cli_is_canonical_entrypoint(monkeypatch):
     assert "usage:" in help_text
     assert "infer" in help_text
     assert "curve" in help_text
+    assert "simulate" in help_text
 
 
 def test_missing_required_columns_returns_nonzero(monkeypatch, tmp_path):

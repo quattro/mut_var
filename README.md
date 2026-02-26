@@ -42,10 +42,100 @@ Canonical infer pipeline:
 - CLI: `mutvar infer <sumstats.tsv> [options]`
 - API (pipeline): `mut_var.run_inference_pipeline(df, ...)` -> validated `polars.DataFrame`
 
+Canonical simulation pipeline:
+
+- CLI: `mutvar simulate --output-prefix demo --output-dir out [options]`
+- API (pipeline): `mut_var.run_simulation_pipeline(config=...)` -> `SimulationArtifacts`
+- Output artifacts:
+  - `out/demo.truth.tsv`
+  - `out/demo.observed.tsv`
+  - `out/demo.meta.tsv`
+- Inference handoff:
+  - `mutvar infer out/demo.observed.tsv -o out/demo.infer.tsv`
+
 Canonical curve pipeline:
 
 - CLI: `mutvar curve <mutvar-output.tsv> [--fit-only]`
 - API: `mut_var.run_curve_pipeline(input_path, generate_plots=...)` -> coefficients `polars.DataFrame`
+
+## Simulation Workflow
+
+`mutvar simulate` generates three aligned artifacts for downstream testing and reproducible demos:
+
+- `*.truth.tsv`: latent component assignments and true effects
+- `*.observed.tsv`: summary-stat style inputs accepted by `mutvar infer`
+- `*.meta.tsv`: run metadata plus AF-decile diagnostics
+
+Example CLI run:
+
+```console
+mutvar simulate \
+  --output-dir out \
+  --output-prefix demo \
+  --n-rows 10000 \
+  --seed 0 \
+  --weights 0.95,0.05 \
+  --log-var-scales -8.0,-5.5
+```
+
+Produced files:
+
+- `out/demo.truth.tsv`
+- `out/demo.observed.tsv`
+- `out/demo.meta.tsv`
+
+Artifact column contracts:
+
+- `truth`: `row_id`, `component`, `beta_true`, `sigma2`, `effect_allele_frequency`
+- `observed`: `row_id`, `effect_allele_frequency`, `beta`, `standard_error`
+- `meta`: `seed`, `n_rows`, `num_components`, `variance_link`, `theta`, `af_decile`, `empirical_var_beta_true`, `empirical_mean_sigma2`
+
+Inference handoff:
+
+```console
+mutvar infer out/demo.observed.tsv -o out/demo.infer.tsv
+```
+
+### Simulation Comparison Plots (Inferred vs Simulated Proportions)
+
+You can compare inferred mixture proportions against simulated component proportions by combining:
+
+- `out/demo.truth.tsv` (from `mutvar simulate`)
+- `out/demo.infer.tsv` (from `mutvar infer out/demo.observed.tsv ...`)
+
+Recommended outputs for this analysis workflow:
+
+- `component_proportions.tsv` — per-threshold comparison table (`maf`, `component`, simulated/inferred proportions)
+- `component_proportions_vs_maf.png` — semilog MAF plot with simulated vs inferred proportion overlays for each component
+- `component_proportions_scatter.png` — inferred vs simulated proportion scatter plot per component (use `[0, 1]` axes for calibration-style reading)
+
+Comparison notes:
+
+- Inferred component labels are not guaranteed to match simulated component IDs.
+- For component-wise comparisons, match inferred components to simulated components using a stable rule (for example nearest `log(var0)` / variance scale) before summing weights.
+- Renormalize inferred weights over the matched non-null component mass when the null component (`pi0` at `var0 == 0`) is excluded from the comparison.
+
+This is an analysis/plotting workflow over existing `simulate` and `infer` outputs; it does not change numerics contracts.
+
+Python API example:
+
+```python
+from mut_var import run_simulation_pipeline, SimulationPipelineConfig
+from mut_var.numerics import SimulationNumericsConfig
+
+artifacts = run_simulation_pipeline(
+    config=SimulationPipelineConfig(
+        n_rows=1000,
+        seed=0,
+        numerics=SimulationNumericsConfig(
+            weights=(0.95, 0.05),
+            log_var_scales=(-8.0, -5.5),
+        ),
+    )
+)
+
+observed_df = artifacts.observed
+```
 
 ## Architecture Contract
 
@@ -54,8 +144,9 @@ Canonical numerics entrypoints live under `mut_var.numerics`:
 - `mut_var.numerics.fit_baseline`
 - `mut_var.numerics.fit_curve`
 - `mut_var.numerics.fit_refit_grid`
+- `mut_var.numerics.simulate_mixture_data`
 
-Pipeline APIs return dataframe outputs for downstream consumption and file IO.
+Pipeline APIs return dataframe outputs (or dataframe artifact containers for simulation) for downstream consumption and file IO.
 Core numerics APIs return `mut_var.contracts.Solution` with explicit `result` status and diagnostics in `stats`/`state`.
 
 `mut_var.cli` is the imperative shell (argument parsing, boundary validation, IO orchestration); it

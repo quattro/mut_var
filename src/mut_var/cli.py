@@ -5,6 +5,7 @@ import argparse as ap
 import logging
 import sys
 
+from pathlib import Path
 from typing import Sequence, TextIO
 
 import jax
@@ -12,6 +13,8 @@ import jax
 from mut_var.curve import run_curve_pipeline
 from mut_var.infer import InferenceConfig, run_inference_pipeline
 from mut_var.io import read_sumstats
+from mut_var.numerics import SimulationNumericsConfig
+from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
 
 jax.config.update("jax_enable_x64", True)
 FMT = ap.ArgumentDefaultsHelpFormatter
@@ -166,12 +169,115 @@ def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     curve.set_defaults(func=run_curve_cli_pipeline)
 
 
+def _build_simulate_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser]) -> None:
+    simulate = subparsers.add_parser(
+        "simulate",
+        formatter_class=FMT,
+        help="Simulate mixture summary-stat artifacts.",
+    )
+
+    output_group = simulate.add_argument_group("Output")
+    output_group.add_argument(
+        "--output-prefix",
+        type=str,
+        required=True,
+        help="Filename prefix for <prefix>.truth.tsv/.observed.tsv/.meta.tsv outputs.",
+    )
+    output_group.add_argument(
+        "--output-dir",
+        type=str,
+        default=".",
+        help="Directory for simulation output files.",
+    )
+
+    core_group = simulate.add_argument_group("Core")
+    core_group.add_argument(
+        "--n-rows",
+        type=int,
+        default=10000,
+        help="Number of rows to simulate.",
+    )
+    core_group.add_argument("--seed", type=int, default=0, help="PRNG seed.")
+
+    mixture_group = simulate.add_argument_group("Mixture")
+    mixture_group.add_argument(
+        "--weights",
+        type=str,
+        default="0.95,0.05",
+        help="Comma-delimited mixture weights.",
+    )
+    mixture_group.add_argument(
+        "--log-var-scales",
+        type=str,
+        default="-8.0,-5.5",
+        help="Comma-delimited component log variance scales.",
+    )
+
+    link_group = simulate.add_argument_group("Variance Link")
+    link_group.add_argument(
+        "--variance-link",
+        type=str,
+        choices=("none", "maf_power", "maf_power_shifted"),
+        default="maf_power",
+        help="AF-dependent variance link family.",
+    )
+    link_group.add_argument("--theta", type=float, default=0.5, help="Variance-link exponent.")
+    link_group.add_argument("--link-eps", type=float, default=1e-8, help="Positive epsilon for maf_power.")
+    link_group.add_argument(
+        "--link-shift",
+        type=float,
+        default=0.0,
+        help="Positive shift for maf_power_shifted.",
+    )
+    link_group.add_argument(
+        "--af-clip-min",
+        type=float,
+        default=1e-4,
+        help="AF clipping lower bound before link/SE evaluation.",
+    )
+
+    af_group = simulate.add_argument_group("AF Model")
+    af_group.add_argument(
+        "--af-model",
+        type=str,
+        choices=("uniform", "beta"),
+        default="beta",
+        help="Allele-frequency generator family.",
+    )
+    af_group.add_argument("--af-uniform-low", type=float, default=0.01, help="Uniform AF lower bound.")
+    af_group.add_argument("--af-uniform-high", type=float, default=0.5, help="Uniform AF upper bound.")
+    af_group.add_argument("--af-beta-a", type=float, default=0.4, help="Beta AF shape parameter a.")
+    af_group.add_argument("--af-beta-b", type=float, default=0.4, help="Beta AF shape parameter b.")
+
+    se_group = simulate.add_argument_group("SE Model")
+    se_group.add_argument(
+        "--se-model",
+        type=str,
+        choices=("constant", "af_n_scaled"),
+        default="af_n_scaled",
+        help="Standard-error generator family.",
+    )
+    se_group.add_argument("--se-constant", type=float, default=0.02, help="Constant SE value.")
+    se_group.add_argument("--sample-size", type=float, default=50000.0, help="Effective sample size.")
+    se_group.add_argument("--se-scale", type=float, default=1.0, help="SE scaling factor.")
+
+    simulate.add_argument_group("Diagnostics").add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable debug-level logging.",
+    )
+    simulate.set_defaults(func=run_simulate_cli_pipeline)
+
+
 def build_parser() -> ap.ArgumentParser:
-    r"""Build the `mutvar` CLI parser with `infer` and `curve` subcommands."""
+    r"""Build the `mutvar` CLI parser with `infer`, `curve`, and `simulate` subcommands."""
     parser = ap.ArgumentParser(description="", formatter_class=FMT)
     subparsers = parser.add_subparsers(dest="command", required=True)
     _build_infer_subcommand(subparsers)
     _build_curve_subcommand(subparsers)
+    _build_simulate_subcommand(subparsers)
     return parser
 
 
@@ -182,6 +288,21 @@ def _output_target(output_stream: TextIO) -> str:
     if isinstance(name, str) and name.strip():
         return name
     return "stream"
+
+
+def _parse_comma_floats(raw: str, field: str) -> tuple[float, ...]:
+    text = raw.strip()
+    if not text:
+        raise ValueError(f"{field} must be a non-empty comma-delimited float list")
+
+    parts = [part.strip() for part in text.split(",")]
+    if any(not part for part in parts):
+        raise ValueError(f"{field} must not contain empty comma-delimited entries")
+
+    try:
+        return tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError(f"{field} must contain only comma-delimited floats") from exc
 
 
 def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
@@ -261,6 +382,76 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     coef_df.write_csv(args.output, separator="\t")
     log.info("curve: finished writing output")
     return 0
+
+
+def run_simulate_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
+    r"""Run the CLI simulation workflow.
+
+    **Arguments:**
+
+    - `args`: Parsed CLI arguments for `simulate`.
+    - `log`: Logger used for diagnostics.
+
+    **Returns:**
+
+    - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
+    """
+    try:
+        log.info("simulate: validating args")
+        output_prefix = str(args.output_prefix).strip()
+        if not output_prefix:
+            raise ValueError("output_prefix must be a non-empty string")
+
+        output_dir = Path(args.output_dir)
+        if not output_dir.exists():
+            raise FileNotFoundError(f"output directory not found: {output_dir}")
+        if not output_dir.is_dir():
+            raise ValueError(f"output_dir must be a directory: {output_dir}")
+
+        weights = _parse_comma_floats(args.weights, "weights")
+        log_var_scales = _parse_comma_floats(args.log_var_scales, "log_var_scales")
+
+        numerics_config = SimulationNumericsConfig(
+            weights=weights,
+            log_var_scales=log_var_scales,
+            variance_link=args.variance_link,
+            theta=args.theta,
+            link_eps=args.link_eps,
+            link_shift=args.link_shift,
+            af_clip_min=args.af_clip_min,
+            af_model=args.af_model,
+            af_uniform_low=args.af_uniform_low,
+            af_uniform_high=args.af_uniform_high,
+            af_beta_a=args.af_beta_a,
+            af_beta_b=args.af_beta_b,
+            se_model=args.se_model,
+            se_constant=args.se_constant,
+            sample_size=args.sample_size,
+            se_scale=args.se_scale,
+        )
+        pipeline_config = SimulationPipelineConfig(
+            n_rows=args.n_rows,
+            seed=args.seed,
+            numerics=numerics_config,
+        )
+
+        log.info("simulate: running pipeline")
+        artifacts = run_simulation_pipeline(config=pipeline_config, log=log)
+
+        log.info("simulate: writing outputs")
+        truth_path = output_dir / f"{output_prefix}.truth.tsv"
+        observed_path = output_dir / f"{output_prefix}.observed.tsv"
+        meta_path = output_dir / f"{output_prefix}.meta.tsv"
+        artifacts.truth.write_csv(truth_path, separator="\t")
+        artifacts.observed.write_csv(observed_path, separator="\t")
+        artifacts.metadata.write_csv(meta_path, separator="\t")
+        return 0
+    except (ValueError, FileNotFoundError) as exc:
+        log.error(str(exc))
+        return 2
+    except RuntimeError as exc:
+        log.error(str(exc))
+        return 1
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
