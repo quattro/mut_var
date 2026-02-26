@@ -26,10 +26,11 @@ def _coefficients_dataframe(coeff_rows: list[dict[str, float]]) -> pl.DataFrame:
                 "coef_left": pl.Float64,
                 "coef_right": pl.Float64,
                 "coef_rate": pl.Float64,
+                "coef_midpoint": pl.Float64,
             }
         )
 
-    return pl.DataFrame(coeff_rows).select(["var0", "coef_left", "coef_right", "coef_rate"])
+    return pl.DataFrame(coeff_rows).select(["var0", "coef_left", "coef_right", "coef_rate", "coef_midpoint"])
 
 
 def run_curve_pipeline(
@@ -48,7 +49,7 @@ def run_curve_pipeline(
 
     **Returns:**
 
-    - Coefficient dataframe (`var0`, `coef_left`, `coef_right`, `coef_rate`).
+    - Coefficient dataframe (`var0`, `coef_left`, `coef_right`, `coef_rate`, `coef_midpoint`).
 
     **Raises:**
 
@@ -86,8 +87,9 @@ def run_curve_pipeline(
         value = jnp.asarray(df_sub["value"].to_jax())
 
         fit_solution = fit_curve(maf, value)
-        if fit_solution.result != RESULTS.successful:
-            details = dict(fit_solution.stats or {})
+        fit_stats = dict(fit_solution.stats or {})
+        if fit_solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
+            details = fit_stats
             details["var0"] = var0
             reason = details.get("reason")
             if not isinstance(reason, str) or not reason.strip():
@@ -95,14 +97,27 @@ def run_curve_pipeline(
             if fit_solution.result in (RESULTS.invalid_input, RESULTS.empty_subset):
                 raise ValueError(reason)
             raise RuntimeError(reason)
+        if fit_solution.result == RESULTS.max_steps_reached:
+            workflow_log.warning("curve pipeline: max steps reached at var0=%s; using last finite iterate", var0)
+        if bool(fit_stats.get("poor_fit")):
+            workflow_log.warning(
+                "curve pipeline: poor-fit diagnostics at var0=%s (rmse=%.6g, max_abs_error=%.6g, sign_changes=%s)",
+                var0,
+                float(fit_stats.get("rmse", float("nan"))),
+                float(fit_stats.get("max_abs_error", float("nan"))),
+                fit_stats.get("data_sign_changes"),
+            )
 
         coef = fit_solution.value
+        if coef is None:
+            raise RuntimeError(f"curve fit returned no coefficients at var0={var0}")
         coeff_rows.append(
             {
                 "var0": var0,
                 "coef_left": float(coef[0]),
                 "coef_right": float(coef[1]),
                 "coef_rate": float(coef[2]),
+                "coef_midpoint": float(coef[3]),
             }
         )
 
