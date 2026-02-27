@@ -117,6 +117,26 @@ Comparison notes:
 
 This is an analysis/plotting workflow over existing `simulate` and `infer` outputs; it does not change numerics contracts.
 
+Reusable script:
+
+```console
+mkdir -p /tmp/mplcfg && MPLCONFIGDIR=/tmp/mplcfg python scripts/plot_component_proportions.py \
+  --truth out/demo.truth.tsv \
+  --infer out/demo.infer.tsv \
+  --output-dir out/sim_compare_plots \
+  --output-prefix component_proportions \
+  --axis-min 0 \
+  --axis-max 1 \
+  --maf-min 1e-3
+```
+
+Script outputs:
+
+- `out/sim_compare_plots/component_proportions.tsv`
+- `out/sim_compare_plots/component_proportions_summary.tsv`
+- `out/sim_compare_plots/component_proportions_vs_maf.png`
+- `out/sim_compare_plots/component_proportions_scatter.png`
+
 Python API example:
 
 ```python
