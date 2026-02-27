@@ -137,6 +137,25 @@ Script outputs:
 - `out/sim_compare_plots/component_proportions_vs_maf.png`
 - `out/sim_compare_plots/component_proportions_scatter.png`
 
+To plot all inferred non-null components directly (without collapsing to simulated component IDs), use:
+
+```console
+mkdir -p /tmp/mplcfg && MPLCONFIGDIR=/tmp/mplcfg python scripts/plot_component_proportions.py \
+  --component-mode inferred \
+  --infer out/demo.infer.tsv \
+  --output-dir out/sim_compare_plots \
+  --output-prefix inferred_components \
+  --axis-min 0 \
+  --axis-max 1 \
+  --maf-min 1e-3
+```
+
+This produces:
+
+- `out/sim_compare_plots/inferred_components.tsv`
+- `out/sim_compare_plots/inferred_components_summary.tsv`
+- `out/sim_compare_plots/inferred_components_vs_maf.png`
+
 Python API example:
 
 ```python
