@@ -1,9 +1,6 @@
-# DFE-based simulation model for stabilizing selection inference
+# DFE-based simulation model for inference of effect size distributions
 
-## Scope
-This document defines the simulation used to generate GWAS-like summary statistics for stabilizing-selection analyses.
-
-## Full model overview
+## Model overview
 For each locus $j$:
 $$
 s_{ud,j} \sim p_{\mathrm{DFE}}(s_{ud}),
@@ -20,7 +17,7 @@ $$
 
 Ascertainment indicator (default MAF mode):
 $$
-\mathbb{1}_j=\mathbb{1}\!\left\{\min(X_j,1-X_j)\ge m^*\right\}.
+\mathbf{1}_j=\mathbf{1}\!\left\{\min(X_j,1-X_j)\ge m^*\right\}.
 $$
 
 Observed tuple exported to `mutvar infer`:
@@ -103,17 +100,6 @@ At each locus $j$, the observed columns map to latent quantities as:
 
 So the exported `beta` column is on the selection-scaled axis $\beta_s$.
 The exported `standard_error` is on that same $\beta_s$ axis.
-
-## Evaluation outputs
-Primary endpoint is recovery of the truth-side distribution of $|\beta_s|$.
-
-Reported quantities:
-
-- absolute error in mean and variance of $\beta_s$,
-- quantile and tail-mass error for $|\beta_s|$,
-- KS and Wasserstein distances for $|\beta_s|$.
-
-AF-conditioned summaries are optional diagnostics.
 
 ## Technical generation details
 DFE sampling is performed on

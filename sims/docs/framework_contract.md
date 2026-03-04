@@ -12,9 +12,9 @@ Any methods/design Markdown in `sims/docs/` must also be rendered to PDF for hum
 
 Canonical command:
 
-`python sims/scripts/render_methods_pdf.py --docs-dir sims/docs --out-dir sims/results/docs_pdf`
+`python sims/scripts/render_methods_pdf.py --docs-dir sims/docs --out-dir sims/docs/docs_pdf`
 
-This keeps generated human-readable artifacts in `sims/results/`.
+This keeps generated human-readable artifacts within `sims/docs/`.
 
 ## Canonical mut_var entrypoints
 - Inference: `mutvar infer <observed.tsv> -o <infer.tsv>`
@@ -41,6 +41,8 @@ The simulator must expose and record:
 - `truth_reference_n` for distribution-evaluation truth sampling (should be larger than `n_ascertained`)
 
 Runtime caution: variance-threshold scenarios are intentionally retained for comparison checks but can be extremely sensitive to `v_s_cutoff` and may run for a long time if configured too strictly. For routine workloads, `threshold_on_maf` is the operational default in this framework.
+
+Single-threshold contract for MAF ascertainment: when `ascertainment.ascertainment_statistic = threshold_on_maf`, generation support and ascertainment use the same threshold (`frequency.min_x` is overridden by `ascertainment.maf_min` for that run). For v-based ascertainment modes, generation support remains controlled by `frequency.min_x`.
 
 The observed `beta` column is on the selection-scaled effect axis (`beta_s`), and metadata must record the canonical scaled coefficient definition `S_ud = 2Ne*s_ud`.
 
