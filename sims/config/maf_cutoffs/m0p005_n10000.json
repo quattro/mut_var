@@ -1,6 +1,6 @@
 {
   "default": {
-    "run_id": "dfe_maf_sweep_m0p05_n10000",
+    "run_id": "dfe_maf_cutoff_m0p005_n10000",
     "n_ascertained": 10000,
     "truth_reference_n": 50000,
     "seed": 20260303,
@@ -23,7 +23,7 @@
     },
     "ascertainment": {
       "ascertainment_statistic": "threshold_on_maf",
-      "maf_min": 0.05,
+      "maf_min": 0.005,
       "v_s_cutoff": null,
       "p_value_threshold": null,
       "n_eff_override": 250000

@@ -31,6 +31,8 @@ class Scenario:
     dfe_weight_grid: np.ndarray
     demography_mode: str
     min_x: float
+    configured_min_x: float
+    generation_min_x_source: str
     n_x: int
     ne: float
     batch_size: int
@@ -119,12 +121,33 @@ def _read_scenario(config_path, scenario_key):
     maf_min = ascertainment_cfg.get("maf_min", ascertainment_cfg.get("min_maf"))
     v_cutoff = ascertainment_cfg.get("v_s_cutoff", ascertainment_cfg.get("v_cutoff"))
     p_threshold = ascertainment_cfg.get("p_value_threshold", ascertainment_cfg.get("p_threshold"))
+    configured_min_x = float(frequency_cfg["min_x"])
+    x_min_clip = float(frequency_cfg["x_min"])
+    x_max_clip = float(frequency_cfg["x_max"])
 
     if ascertainment_mode == "threshold_on_maf":
         if maf_min is None:
             raise ValueError("ascertainment `threshold_on_maf` requires `maf_min`.")
+        maf_min = float(maf_min)
+        if not np.isfinite(maf_min) or maf_min <= 0.0 or maf_min >= 0.5:
+            raise ValueError("ascertainment `maf_min` must satisfy 0 < maf_min < 0.5.")
+        if x_min_clip > maf_min:
+            raise ValueError(
+                "frequency.x_min exceeds ascertainment.maf_min; this would break single-threshold "
+                "MAF generation/ascertainment coupling."
+            )
+        if x_max_clip < (1.0 - maf_min):
+            raise ValueError(
+                "frequency.x_max is below 1 - ascertainment.maf_min; this would break single-threshold "
+                "MAF generation/ascertainment coupling."
+            )
+        generation_min_x = maf_min
+        generation_min_x_source = "ascertainment.maf_min"
     elif v_cutoff is None:
         raise ValueError("ascertainment requires `v_s_cutoff` (or legacy `v_cutoff`).")
+    else:
+        generation_min_x = configured_min_x
+        generation_min_x_source = "frequency.min_x"
     if ascertainment_mode != "threshold_on_maf" and p_threshold is None:
         raise ValueError("ascertainment requires `p_value_threshold` (or legacy `p_threshold`).")
 
@@ -139,12 +162,14 @@ def _read_scenario(config_path, scenario_key):
         dfe_log10_s_grid=np.asarray(sc["dfe"]["log10_s_grid"], dtype=float),
         dfe_weight_grid=np.asarray(sc["dfe"]["weight_grid"], dtype=float),
         demography_mode=str(frequency_cfg["demography_mode"]),
-        min_x=float(frequency_cfg["min_x"]),
+        min_x=float(generation_min_x),
+        configured_min_x=configured_min_x,
+        generation_min_x_source=generation_min_x_source,
         n_x=int(frequency_cfg["n_x"]),
         ne=float(frequency_cfg.get("N_e_ancestral", frequency_cfg.get("ne"))),
         batch_size=int(frequency_cfg["batch_size"]),
-        x_min=float(frequency_cfg["x_min"]),
-        x_max=float(frequency_cfg["x_max"]),
+        x_min=x_min_clip,
+        x_max=x_max_clip,
         selection_mode=selection_mode,
         ascertainment_mode=ascertainment_mode,
         maf_min=(None if maf_min is None else float(maf_min)),
@@ -465,6 +490,9 @@ def main():
         {"key": "ascertainment_mode", "value": sc.ascertainment_mode},
         {"key": "ascertainment_statistic", "value": _ascertainment_statistic_name(sc.ascertainment_mode)},
         {"key": "maf_min", "value": "" if sc.maf_min is None else f"{sc.maf_min:.12g}"},
+        {"key": "frequency_min_x_configured", "value": f"{sc.configured_min_x:.12g}"},
+        {"key": "generation_min_x_effective", "value": f"{sc.min_x:.12g}"},
+        {"key": "generation_min_x_source", "value": sc.generation_min_x_source},
         {"key": "v_s_cutoff", "value": "" if sc.v_cutoff is None else f"{sc.v_cutoff:.12g}"},
         {"key": "p_value_threshold", "value": "" if sc.p_threshold is None else f"{sc.p_threshold:.12g}"},
         {"key": "neff", "value": f"{neff:.12g}"},
