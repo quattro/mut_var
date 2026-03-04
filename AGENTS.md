@@ -76,6 +76,16 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - Use MkDocs admonitions when they improve clarity in generated docs (for example: `!!! info`, `!!! note`, `!!! warning`, `!!! tip`).
 - Keep admonition titles/content concise and technically actionable; avoid decorative callouts.
 
+## Methods Math Docs (Simulation/Inference)
+- For methods-style math docs (especially under `sims/docs`), start with an equation-led model statement, not bullets/numbered flow lists.
+- Keep the opening focused on the full generative model and mutvar-facing quantities; avoid frontloading implementation internals.
+- Place low-level implementation details (for example interpolation mechanics, SFS kernel specifics, grid/discretization machinery) in a final technical-details section.
+- Keep core scaling/effect equations near the top; include only equations needed to understand what is inferred and what is exported.
+- Do not elevate auxiliary derived quantities (for example variance-contribution formulas) unless they are directly required for a core step (such as optional ascertainment rules).
+- Use renderer-safe LaTeX/Markdown: avoid fragile formatting patterns in display math; prefer plain symbol equations and explicit column-to-symbol mappings.
+- Avoid meta/process labels in headers (for example “primary”, “minor”, “important”); use content-descriptive section names.
+- Keep the `mutvar infer` input contract explicit and easy to locate: `effect_allele_frequency`, `beta`, `standard_error`, with their symbol mapping.
+
 ## Project Structure
 - `src/mut_var/` - package API, CLI shell, pipelines, numerics, plotting adapters.
 - `tests/` - behavior and contract regression tests.

@@ -1,0 +1,11 @@
+{
+  "reference_component_name": "pi0",
+  "reference_maf_selector": "max",
+  "distribution_quantiles": [0.9, 0.95, 0.99],
+  "tail_mass_probs": [0.95, 0.99],
+  "mixture_sample_size": 50000,
+  "wasserstein_quantiles": 512,
+  "random_seed": 20260304,
+  "compute_af_dependence_secondary": false,
+  "af_bins": [0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 0.8, 0.95, 0.99, 0.999]
+}

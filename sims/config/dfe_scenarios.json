@@ -1,0 +1,61 @@
+{
+  "default": {
+    "run_id": "dfe_hd_maf_default",
+    "n_ascertained": 5000,
+    "truth_reference_n": 25000,
+    "seed": 20260303,
+    "dfe": {
+      "model": "ssd_tabulated",
+      "log10_s_grid": [-6.0, -5.5, -5.0, -4.5, -4.25, -4.0, -3.5, -3.0, -2.5, -2.0, -1.5],
+      "weight_grid": [0.0, 26.0, 117.0, 230.0, 250.0, 233.0, 136.0, 56.0, 22.0, 13.0, 13.0]
+    },
+    "frequency": {
+      "demography_mode": "equilibrium",
+      "N_e_ancestral": 10000,
+      "min_x": 0.01,
+      "n_x": 1000,
+      "batch_size": 10000,
+      "x_min": 0.001,
+      "x_max": 0.999
+    },
+    "effect": {
+      "selection_mode": "high_dimensional"
+    },
+    "ascertainment": {
+      "ascertainment_statistic": "threshold_on_maf",
+      "maf_min": 0.01,
+      "v_s_cutoff": null,
+      "p_value_threshold": null,
+      "n_eff_override": 250000
+    }
+  },
+  "one_dimensional_true_v": {
+    "run_id": "dfe_1d_truev_default",
+    "n_ascertained": 5000,
+    "truth_reference_n": 25000,
+    "seed": 20260304,
+    "dfe": {
+      "model": "ssd_tabulated",
+      "log10_s_grid": [-6.0, -5.5, -5.0, -4.5, -4.25, -4.0, -3.5, -3.0, -2.5, -2.0, -1.5],
+      "weight_grid": [0.0, 26.0, 117.0, 230.0, 250.0, 233.0, 136.0, 56.0, 22.0, 13.0, 13.0]
+    },
+    "frequency": {
+      "demography_mode": "equilibrium",
+      "N_e_ancestral": 10000,
+      "min_x": 0.01,
+      "n_x": 1000,
+      "batch_size": 10000,
+      "x_min": 0.001,
+      "x_max": 0.999
+    },
+    "effect": {
+      "selection_mode": "one_dimensional"
+    },
+    "ascertainment": {
+      "ascertainment_statistic": "threshold_on_v_true",
+      "v_s_cutoff": 4.0,
+      "p_value_threshold": 5e-8,
+      "n_eff_override": null
+    }
+  }
+}
