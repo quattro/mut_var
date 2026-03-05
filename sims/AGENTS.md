@@ -2,9 +2,15 @@
 
 ## Scope and boundaries
 - Only create or edit files under `sims/`.
-- Do not modify files outside `sims/` unless the user explicitly asks.
+- Do not modify files outside `sims/` unless the user explicitly asks and acknowledges this rule is to be broken.
 - Keep method/inference code in `src/` read-only.
 - Do not run extra workflows beyond what the user requested.
+
+## Boundary enforcement (hard, low-overhead)
+- Fast pre-edit check (only when writing files): `git status --short` and confirm all intended write targets start with `sims/`.
+- Fast pre-commit check: `git diff --name-only --cached` must contain only `sims/` paths.
+- If any non-`sims/` path appears in planned edits or staged files, stop and require explicit user override text acknowledging the boundary break.
+- Outside this path-scope gate, keep normal behavior unchanged: no extra planning/confirmation required for routine `sims/` work.
 
 ## Output locations
 - Keep generated outputs under:
