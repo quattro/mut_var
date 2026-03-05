@@ -88,3 +88,7 @@ Each run must be reproducible from:
 - scenario configuration
 - exact commands executed
 - artifact paths and basic checks (row counts and key summary values)
+
+Simulator-side zero-gate contracts are validated under `sims/` with:
+
+`python sims/scripts/check_zero_gate_contract.py`
