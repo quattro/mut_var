@@ -29,6 +29,8 @@ class Scenario:
     truth_reference_seed: int | None
     dfe_log10_s_grid: np.ndarray
     dfe_weight_grid: np.ndarray
+    point_mass_zero: float
+    trait_null_fraction: float
     demography_mode: str
     min_x: float
     configured_min_x: float
@@ -121,9 +123,16 @@ def _read_scenario(config_path, scenario_key):
     maf_min = ascertainment_cfg.get("maf_min", ascertainment_cfg.get("min_maf"))
     v_cutoff = ascertainment_cfg.get("v_s_cutoff", ascertainment_cfg.get("v_cutoff"))
     p_threshold = ascertainment_cfg.get("p_value_threshold", ascertainment_cfg.get("p_threshold"))
+    point_mass_zero = float(sc["dfe"].get("point_mass_zero", 0.0))
+    trait_null_fraction = float(effect_cfg.get("trait_null_fraction", 0.0))
     configured_min_x = float(frequency_cfg["min_x"])
     x_min_clip = float(frequency_cfg["x_min"])
     x_max_clip = float(frequency_cfg["x_max"])
+
+    if not np.isfinite(point_mass_zero) or point_mass_zero < 0.0 or point_mass_zero >= 1.0:
+        raise ValueError("dfe.point_mass_zero must satisfy 0 <= point_mass_zero < 1.")
+    if not np.isfinite(trait_null_fraction) or trait_null_fraction < 0.0 or trait_null_fraction > 1.0:
+        raise ValueError("effect.trait_null_fraction must satisfy 0 <= trait_null_fraction <= 1.")
 
     if ascertainment_mode == "threshold_on_maf":
         if maf_min is None:
@@ -161,6 +170,8 @@ def _read_scenario(config_path, scenario_key):
         truth_reference_seed=(None if sc.get("truth_reference_seed") is None else int(sc.get("truth_reference_seed"))),
         dfe_log10_s_grid=np.asarray(sc["dfe"]["log10_s_grid"], dtype=float),
         dfe_weight_grid=np.asarray(sc["dfe"]["weight_grid"], dtype=float),
+        point_mass_zero=point_mass_zero,
+        trait_null_fraction=trait_null_fraction,
         demography_mode=str(frequency_cfg["demography_mode"]),
         min_x=float(generation_min_x),
         configured_min_x=configured_min_x,
@@ -287,6 +298,20 @@ def _draw_batch(rng, sc, neff, n_draw):
 
     x, log10_s = _equilibrium_sample_x(rng, n_draw, sc)
     beta_s_true = _draw_effects(rng, log10_s, sc)
+    zero_from_dfe_mask = np.zeros(beta_s_true.shape[0], dtype=bool)
+    if sc.point_mass_zero > 0.0:
+        zero_from_dfe_mask = rng.uniform(size=beta_s_true.shape[0]) < sc.point_mass_zero
+        beta_s_true = np.where(zero_from_dfe_mask, 0.0, beta_s_true)
+
+    zero_from_trait_null_mask = np.zeros(beta_s_true.shape[0], dtype=bool)
+    if sc.trait_null_fraction > 0.0:
+        eligible = ~zero_from_dfe_mask
+        if np.any(eligible):
+            draws = rng.uniform(size=int(np.sum(eligible))) < sc.trait_null_fraction
+            zero_from_trait_null_mask[eligible] = draws
+            beta_s_true = np.where(zero_from_trait_null_mask, 0.0, beta_s_true)
+
+    beta_zero_any_mask = zero_from_dfe_mask | zero_from_trait_null_mask
     se = np.sqrt(1.0 / np.maximum(2.0 * x * (1.0 - x) * neff, 1e-20))
 
     v_s_true = 2.0 * x * (1.0 - x) * (beta_s_true ** 2)
@@ -330,6 +355,9 @@ def _draw_batch(rng, sc, neff, n_draw):
         "v_s_ascertain": v_s_ascertain[keep],
         "ascertain_stat_value": ascertain_stat_value[keep],
         "ascertain_from_hat": np.full(np.sum(keep), sc.ascertainment_mode == "noisy_hat_v", dtype=bool),
+        "beta_zero_from_dfe_point_mass": zero_from_dfe_mask[keep],
+        "beta_zero_from_trait_null": zero_from_trait_null_mask[keep],
+        "beta_zero_any": beta_zero_any_mask[keep],
     }
 
 
@@ -351,6 +379,9 @@ def _generate(sc, n_target, seed):
         "v_s_ascertain": [],
         "ascertain_stat_value": [],
         "ascertain_from_hat": [],
+        "beta_zero_from_dfe_point_mass": [],
+        "beta_zero_from_trait_null": [],
+        "beta_zero_any": [],
     }
 
     total = 0
@@ -454,6 +485,9 @@ def main():
             "v_s_ascertain": float(arrs_truth["v_s_ascertain"][i]),
             "ascertain_stat_value": float(arrs_truth["ascertain_stat_value"][i]),
             "ascertain_from_hat": bool(arrs_truth["ascertain_from_hat"][i]),
+            "beta_zero_from_dfe_point_mass": bool(arrs_truth["beta_zero_from_dfe_point_mass"][i]),
+            "beta_zero_from_trait_null": bool(arrs_truth["beta_zero_from_trait_null"][i]),
+            "beta_zero_any": bool(arrs_truth["beta_zero_any"][i]),
         }
         for i in range(n_truth_rows)
     ]
@@ -473,6 +507,9 @@ def main():
             "v_s_ascertain",
             "ascertain_stat_value",
             "ascertain_from_hat",
+            "beta_zero_from_dfe_point_mass",
+            "beta_zero_from_trait_null",
+            "beta_zero_any",
         ],
     )
 
@@ -489,6 +526,8 @@ def main():
         {"key": "selection_mode", "value": sc.selection_mode},
         {"key": "ascertainment_mode", "value": sc.ascertainment_mode},
         {"key": "ascertainment_statistic", "value": _ascertainment_statistic_name(sc.ascertainment_mode)},
+        {"key": "point_mass_zero", "value": f"{sc.point_mass_zero:.12g}"},
+        {"key": "trait_null_fraction", "value": f"{sc.trait_null_fraction:.12g}"},
         {"key": "maf_min", "value": "" if sc.maf_min is None else f"{sc.maf_min:.12g}"},
         {"key": "frequency_min_x_configured", "value": f"{sc.configured_min_x:.12g}"},
         {"key": "generation_min_x_effective", "value": f"{sc.min_x:.12g}"},
@@ -504,6 +543,15 @@ def main():
         {"key": "mean_se", "value": f"{float(np.mean(arrs_truth['standard_error'])):.12g}"},
         {"key": "mean_v_s_true", "value": f"{float(np.mean(arrs_truth['v_s_true'])):.12g}"},
         {"key": "mean_v_s_hat", "value": f"{float(np.mean(arrs_truth['v_s_hat'])):.12g}"},
+        {
+            "key": "truth_fraction_beta_zero_from_dfe_point_mass",
+            "value": f"{float(np.mean(arrs_truth['beta_zero_from_dfe_point_mass'])):.12g}",
+        },
+        {
+            "key": "truth_fraction_beta_zero_from_trait_null",
+            "value": f"{float(np.mean(arrs_truth['beta_zero_from_trait_null'])):.12g}",
+        },
+        {"key": "truth_fraction_beta_zero_any", "value": f"{float(np.mean(arrs_truth['beta_zero_any'])):.12g}"},
     ]
     _write_tsv(meta_path, meta_rows, ["key", "value"])
 

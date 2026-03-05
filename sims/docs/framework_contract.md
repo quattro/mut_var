@@ -37,6 +37,8 @@ The simulator must expose and record:
 - `ascertainment.ascertainment_statistic` with primary default `threshold_on_maf` and optional alternative modes `{threshold_on_v_true, threshold_on_v_hat}`
 - `ascertainment.maf_min` for MAF-threshold runs
 - `ascertainment.v_s_cutoff` and `ascertainment.p_value_threshold` for variance-threshold runs
+- `dfe.point_mass_zero` in `[0, 1)` with default `0.0`, defining the DFE atom at `beta_s = 0`; the tabulated SSD grid parameterizes the nonzero DFE component
+- `effect.trait_null_fraction` in `[0, 1]` with default `0.0`, defining an additional focal-trait null gate on top of latent DFE draws
 - fixed `n_ascertained` target per run
 - `truth_reference_n` for distribution-evaluation truth sampling (should be larger than `n_ascertained`)
 
@@ -45,6 +47,10 @@ Runtime caution: variance-threshold scenarios are intentionally retained for com
 Single-threshold contract for MAF ascertainment: when `ascertainment.ascertainment_statistic = threshold_on_maf`, generation support and ascertainment use the same threshold (`frequency.min_x` is overridden by `ascertainment.maf_min` for that run). For v-based ascertainment modes, generation support remains controlled by `frequency.min_x`.
 
 The observed `beta` column is on the selection-scaled effect axis (`beta_s`), and metadata must record the canonical scaled coefficient definition `S_ud = 2Ne*s_ud`.
+
+When `dfe.point_mass_zero > 0`, the DFE includes a nonzero atom at `beta_s = 0` in latent effects before noise and ascertainment. Observed outputs are not required to preserve an exact zero fraction.
+
+When `effect.trait_null_fraction > 0`, additional loci can have latent `beta_s=0` even when selected/neutral draws remain nonzero under the DFE. Observed outputs are not required to preserve an exact zero fraction.
 
 ## Domain and quality constraints
 For every row in observed TSV:
@@ -57,7 +63,7 @@ For every row in observed TSV:
 ## Simulator output artifacts per run
 Given `run_id`, simulator writes:
 - `sims/results/<run_id>.observed.tsv` (mut_var input)
-- `sims/results/<run_id>.truth.tsv` (latent variables and generating params; may use an independent larger truth-reference sample)
+- `sims/results/<run_id>.truth.tsv` (latent variables and generating params, including zero-source flags; may use an independent larger truth-reference sample)
 - `sims/results/<run_id>.meta.tsv` (run metadata and summary stats)
 - `sims/results/<run_id>.manifest.json` (reproducibility metadata)
 

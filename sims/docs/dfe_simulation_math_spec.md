@@ -7,7 +7,7 @@ s_{ud,j} \sim p_{\mathrm{DFE}}(s_{ud}),
 \qquad
 X_j \sim p_X(x\mid s_{ud,j}),
 \qquad
-\beta_{s,j} \sim p_{\beta}(\beta_s\mid s_{ud,j}),
+\beta_{s,j} \mid s_{ud,j} \sim p_{\beta}(\beta_s\mid s_{ud,j}),
 $$
 $$
 \mathrm{SE}_j=\left(2X_j(1-X_j)n_{\mathrm{eff}}\right)^{-1/2},
@@ -39,6 +39,33 @@ Notation:
 - $n_{\mathrm{eff}}$: effective GWAS sample size controlling observation noise.
 
 All beta quantities in this document are on the selection-scaled axis $\beta_s$ (not raw trait-scale effect units). In the one-dimensional limit, $\beta_s^2=S_{ud}$, which fixes the scale of both $\beta_s$ and $\hat\beta_s$.
+
+## Practical DFE parameterization for focal-trait effects
+In practical runs, a common parameterization expresses focal-trait effects as a mixture of:
+
+1. a DFE-linked zero atom, and
+2. a trait-coupling null gate applied on top of the latent draw.
+
+The focal-trait law is written as
+$$
+p_{\beta}(\beta_s\mid s_{ud})
+=
+p_0\,\delta_0(\beta_s)
++
+(1-p_0)\Big[p_t\,\delta_0(\beta_s) + (1-p_t)\,p_{\beta,+}(\beta_s\mid s_{ud})\Big],
+$$
+with
+$$
+p_0 = \texttt{dfe.point\_mass\_zero},
+\qquad
+p_t = \texttt{effect.trait\_null\_fraction}.
+$$
+
+Interpretation:
+
+- $p_0$ controls the DFE-level atom at zero,
+- $p_t$ controls an additional focal-trait null fraction among variants not already set to zero by $p_0$,
+- $p_{\beta,+}(\cdot\mid s_{ud})$ is the nonzero conditional component parameterized from the SSD table.
 
 Effect model under stabilizing-selection limits:
 
@@ -102,7 +129,7 @@ So the exported `beta` column is on the selection-scaled axis $\beta_s$.
 The exported `standard_error` is on that same $\beta_s$ axis.
 
 ## Technical generation details
-DFE sampling is performed on
+The nonzero DFE component is parameterized on
 $$
 \ell=\log_{10}(s_{ud}),
 $$
@@ -111,7 +138,7 @@ $$
 p_\ell(\ell)\propto \operatorname{interp}(\ell;\{\ell_i,f_i\}).
 $$
 
-Allele frequencies are sampled from an underdominant SFS conditional on $s_{ud}$. In this implementation, the SFS kernel is parameterized with $2S_{ud}$, where $S_{ud}=2N_es_{ud}$:
+Allele frequencies are sampled from an underdominant SFS conditional on $s_{ud}$. The SFS kernel is parameterized with $2S_{ud}$, where $S_{ud}=2N_es_{ud}$:
 $$
 \log \tau(x\mid S_{ud})
 =
