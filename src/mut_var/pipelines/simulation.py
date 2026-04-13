@@ -2,32 +2,13 @@ from __future__ import annotations
 
 import logging
 
-
-# pattern: Mixed (unavoidable)
-# Reason: this module combines pure dataframe shaping helpers with workflow orchestration/logging.
-from typing import NamedTuple
-
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics import simulate_mixture_data, SimulationArrays, SimulationNumericsConfig
-
-
-class SimulationPipelineConfig(NamedTuple):
-    n_rows: int
-    seed: int = 0
-    numerics: SimulationNumericsConfig = SimulationNumericsConfig(
-        weights=(0.95, 0.05),
-        log_var_scales=(-8.0, -5.5),
-    )
-
-
-class SimulationArtifacts(NamedTuple):
-    truth: pl.DataFrame
-    observed: pl.DataFrame
-    metadata: pl.DataFrame
+from mut_var.numerics import simulate_mixture_data, SimulationArrays
+from mut_var.pipelines.types import SimulationArtifacts, SimulationPipelineConfig
 
 
 def _to_numpy(values: jnp.ndarray | object, dtype: np.dtype) -> np.ndarray:
@@ -175,8 +156,4 @@ def run_simulation_pipeline(
     )
 
 
-__all__ = [
-    "SimulationArtifacts",
-    "SimulationPipelineConfig",
-    "run_simulation_pipeline",
-]
+__all__ = ["run_simulation_pipeline"]

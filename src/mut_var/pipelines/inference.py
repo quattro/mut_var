@@ -3,63 +3,35 @@ from __future__ import annotations
 import logging
 
 from collections.abc import Callable
-
-# pattern: Mixed (unavoidable)
-# Reason: preserves compatibility while consolidating numerics and orchestration entrypoints.
-from typing import Any, Mapping, NamedTuple, TYPE_CHECKING
+from typing import Any, Mapping, TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 
+import mut_var.numerics.baseline as baseline_module
+import mut_var.numerics.refit as refit_module
+
 from mut_var.contracts import RESULTS, Solution
-from mut_var.io import validate_maf_grid, validate_numeric_columns, validate_required_columns, validate_sumstats_domain
+from mut_var.io import (
+    build_maf_masks,
+    payload_to_long_dataframe,
+    to_inference_arrays,
+    validate_maf_grid,
+    validate_numeric_columns,
+    validate_required_columns,
+    validate_sumstats_domain,
+)
+from mut_var.numerics._solver_utils import is_recoverable_result, merge_recoverable_results
+from mut_var.pipelines.types import InferenceConfig
 
 if TYPE_CHECKING:
-    from mut_var.numerics.baseline import BaselineConfig, Params
-    from mut_var.numerics.refit import RefitConfig
-
-
-class InferenceArrays(NamedTuple):
-    af: np.ndarray
-    beta_hat: np.ndarray
-    s2: np.ndarray
-
-
-class InferenceConfig(NamedTuple):
-    num_clusters: int
-    max_iter: int = 100
-    tol: float = 1e-5
-    step_size: float = 0.01
-    filter_threshold: float = 1e-8
-    penalty: float = 1.0
-
-    def to_baseline_config(self) -> BaselineConfig:
-        r"""Convert pipeline controls to baseline-stage solver config."""
-        from mut_var.numerics.baseline import BaselineConfig
-
-        return BaselineConfig(
-            num_clusters=self.num_clusters,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            step_size=self.step_size,
-        )
-
-    def to_refit_config(self) -> RefitConfig:
-        r"""Convert pipeline controls to refit-stage solver config."""
-        from mut_var.numerics.refit import RefitConfig
-
-        return RefitConfig(
-            penalty=self.penalty,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            step_size=self.step_size,
-        )
+    from mut_var.numerics.baseline import Params
 
 
 def _filter_components(params: Params, threshold: float) -> Params:
     keep = params.pi > threshold
     keep = keep.copy()
-    keep[0] = True  # always keep the null component
+    keep[0] = True
     pi = params.pi[keep]
     pi = pi / np.sum(pi)
     return params.__class__(
@@ -167,11 +139,6 @@ def run_inference_pipeline(
     - `ValueError`: Boundary validation failure or invalid numerics result.
     - `RuntimeError`: Non-recoverable numerics failure.
     """
-    from mut_var.adapters.tabular import build_maf_masks, payload_to_long_dataframe, to_inference_arrays
-    from mut_var.numerics._solver_utils import is_recoverable_result, merge_recoverable_results
-    from mut_var.numerics.baseline import fit_baseline
-    from mut_var.numerics.refit import fit_refit_grid
-
     workflow_log = logging.getLogger(__name__) if log is None else log
 
     workflow_log.info("inference pipeline: validating input data")
@@ -195,7 +162,7 @@ def run_inference_pipeline(
 
     baseline_config = inference_config.to_baseline_config()
     workflow_log.info("inference pipeline: fitting baseline model with config %s", baseline_config)
-    baseline_solution = fit_baseline(
+    baseline_solution = baseline_module.fit_baseline(
         beta_hat=beta_hat,
         s2=s2,
         config=baseline_config,
@@ -213,7 +180,7 @@ def run_inference_pipeline(
         filtered = _filter_components(baseline_solution.value, inference_config.filter_threshold)
 
         workflow_log.info("inference pipeline: fitting refit grid")
-        refit_solution = fit_refit_grid(
+        refit_solution = refit_module.fit_refit_grid(
             beta_hat=beta_hat,
             s2=s2,
             maf_masks=maf_masks,
@@ -255,8 +222,4 @@ def run_inference_pipeline(
     return result_df
 
 
-__all__ = [
-    "InferenceArrays",
-    "InferenceConfig",
-    "run_inference_pipeline",
-]
+__all__ = ["run_inference_pipeline"]

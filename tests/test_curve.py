@@ -12,8 +12,8 @@ import polars as pl
 from scipy.special import expit
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.curve import run_curve_pipeline
 from mut_var.numerics.curve_fit import curve, fit_curve
+from mut_var.pipelines import run_curve_pipeline
 
 FIXTURE = Path(__file__).parent / "fixtures" / "curve_small.tsv"
 
@@ -275,7 +275,7 @@ def test_curve_pipeline_accepts_max_steps_reached(monkeypatch, tmp_path):
             state=None,
         )
 
-    monkeypatch.setattr("mut_var.curve.fit_curve", _fake_fit_curve)
+    monkeypatch.setattr("mut_var.pipelines.curve.fit_curve", _fake_fit_curve)
 
     coef_df = run_curve_pipeline(str(data_path), generate_plots=False)
 
@@ -303,7 +303,7 @@ def test_curve_pipeline_logs_warning_for_poor_fit(monkeypatch, tmp_path, caplog)
             state=None,
         )
 
-    monkeypatch.setattr("mut_var.curve.fit_curve", _fake_fit_curve)
+    monkeypatch.setattr("mut_var.pipelines.curve.fit_curve", _fake_fit_curve)
 
     with caplog.at_level(logging.WARNING):
         run_curve_pipeline(str(data_path), generate_plots=False)

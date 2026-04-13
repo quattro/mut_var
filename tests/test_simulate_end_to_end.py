@@ -1,8 +1,12 @@
 import polars as pl
 
-from mut_var.infer import InferenceConfig, run_inference_pipeline
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
+from mut_var.pipelines import (
+    InferenceConfig,
+    run_inference_pipeline,
+    run_simulation_pipeline,
+    SimulationPipelineConfig,
+)
 
 
 def test_run_simulation_pipeline_outputs_feed_inference_pipeline_smoke():

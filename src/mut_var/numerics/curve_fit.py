@@ -167,9 +167,6 @@ def fit_curve(maf: np.ndarray, value: np.ndarray) -> Solution:
             residuals,
             init,
             method="lm",
-            xtol=1e-3,
-            ftol=1e-3,
-            gtol=1e-3,
             max_nfev=1000,
         )
     except Exception as exc:

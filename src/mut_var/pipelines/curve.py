@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# pattern: Imperative Shell
 import logging
 
 from pathlib import Path
@@ -128,7 +127,7 @@ def run_curve_pipeline(
             maf_space = jnp.linspace(float(maf.min()), float(maf.max()), 200)
             fitted_values = curve(maf_space, coef)
             out_path = Path(f"{input_path}_{var0:.6g}.png")
-            rendered = render_curve_plot(
+            _ = render_curve_plot(
                 maf=maf,
                 value=value,
                 maf_space=maf_space,
@@ -136,10 +135,12 @@ def run_curve_pipeline(
                 title=f"var0 = {var0}",
                 output_path=out_path,
             )
-            _ = rendered
 
     workflow_log.info("curve pipeline: curve fitting completed")
     workflow_log.info("curve pipeline: preparing output dataframe")
     coef_df = _coefficients_dataframe(coeff_rows)
     workflow_log.info("curve pipeline: output dataframe prepared (%d rows)", coef_df.height)
     return coef_df
+
+
+__all__ = ["run_curve_pipeline"]

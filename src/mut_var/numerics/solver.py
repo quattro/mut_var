@@ -5,8 +5,8 @@ from typing import Any
 
 import numpy as np
 
-from mut_var._core import compute_grad_hess, compute_objective, line_search
-from mut_var.active_set import solve_qp_nonneg, solve_qp_ordered
+from mut_var.numerics._core import compute_grad_hess, compute_objective, line_search
+from mut_var.numerics.active_set import solve_qp_nonneg, solve_qp_ordered
 
 """
 Outer SQP loop for mix-SQP mixture proportion estimation.

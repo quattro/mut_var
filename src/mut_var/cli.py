@@ -8,11 +8,15 @@ import sys
 from pathlib import Path
 from typing import Sequence, TextIO
 
-from mut_var.curve import run_curve_pipeline
-from mut_var.infer import InferenceConfig, run_inference_pipeline
 from mut_var.io import read_sumstats
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
+from mut_var.pipelines import (
+    InferenceConfig,
+    run_curve_pipeline,
+    run_inference_pipeline,
+    run_simulation_pipeline,
+    SimulationPipelineConfig,
+)
 
 FMT = ap.ArgumentDefaultsHelpFormatter
 
@@ -109,6 +113,12 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         type=float,
         default=0.01,
         help="Optimization step size.",
+    )
+    model_group.add_argument(
+        "--tol",
+        type=float,
+        default=1e-5,
+        help="Relative objective convergence tolerance.",
     )
     model_group.add_argument("-s", "--seed", type=int, default=0, help="PRNG seed.")
     model_group.add_argument(
@@ -332,6 +342,7 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             config=InferenceConfig(
                 num_clusters=args.num_clusters,
                 max_iter=args.max_iter,
+                tol=args.tol,
                 step_size=args.step_size,
                 filter_threshold=args.filter,
                 penalty=args.penalty,

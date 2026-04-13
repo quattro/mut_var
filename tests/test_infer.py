@@ -9,11 +9,15 @@ import mut_var
 import mut_var.cli as cli
 import mut_var.numerics as numerics
 
-from mut_var.adapters.tabular import to_inference_arrays
 from mut_var.contracts import RESULTS, Solution
-from mut_var.infer import InferenceConfig, run_inference_pipeline as run_inference_dataframe_pipeline
+from mut_var.io import to_inference_arrays
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
+from mut_var.pipelines import (
+    InferenceConfig,
+    run_inference_pipeline as run_inference_dataframe_pipeline,
+    run_simulation_pipeline,
+    SimulationPipelineConfig,
+)
 
 
 def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
@@ -32,7 +36,7 @@ def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
 
 
 def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
-    caplog.set_level(logging.INFO, logger="mut_var.infer")
+    caplog.set_level(logging.INFO, logger="mut_var.pipelines.inference")
 
     run_inference_dataframe_pipeline(
         sumstats_valid_df,
@@ -43,14 +47,14 @@ def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
         config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
     )
 
-    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
+    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
     assert any("fitting baseline model" in message for message in messages)
     assert any("fitting refit grid" in message for message in messages)
     assert any("building numerics payload" in message for message in messages)
 
 
 def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, caplog):
-    caplog.set_level(logging.DEBUG, logger="mut_var.infer")
+    caplog.set_level(logging.DEBUG, logger="mut_var.pipelines.inference")
 
     run_inference_dataframe_pipeline(
         sumstats_valid_df,
@@ -61,7 +65,7 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, ca
         config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
     )
 
-    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
+    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
     assert any("baseline | Step:" in message for message in messages)
     assert any("refit | Step:" in message for message in messages)
 
@@ -162,12 +166,12 @@ def test_numerics_public_surface_does_not_export_profiling_helpers():
 
 
 def test_numerics_module_owns_numerics_entrypoint():
-    import mut_var.infer as infer_module
+    import mut_var.pipelines.types as pipeline_types
 
     assert importlib.util.find_spec("mut_var.numerics.pipeline") is None
-    assert not hasattr(infer_module, "run_numerics_inference_pipeline")
-    assert infer_module.InferenceArrays is numerics.InferenceArrays
-    assert infer_module.InferenceConfig is numerics.InferenceConfig
+    assert pipeline_types.InferenceConfig is InferenceConfig
+    assert not hasattr(numerics, "InferenceArrays")
+    assert not hasattr(numerics, "InferenceConfig")
     assert not hasattr(numerics, "run_inference_pipeline")
 
 

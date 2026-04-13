@@ -56,7 +56,8 @@ search_parent_directories = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-"mut_var" = ["*.pyx", "*.pxd"]
+"mut_var" = []
+"mut_var.numerics" = ["*.pyx", "*.pxd"]
 
 [tool.coverage.run]
 source_pkgs = ["mut_var", "tests"]

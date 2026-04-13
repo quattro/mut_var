@@ -9,7 +9,7 @@ import numpy as np
 from scipy.stats import norm as scipy_norm
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.solver import mix_sqp
+from mut_var.numerics.solver import mix_sqp
 
 
 class Params(NamedTuple):

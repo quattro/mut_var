@@ -6,7 +6,10 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import polars as pl
+
+from mut_var.pipelines.types import InferenceArrays
 
 
 def read_sumstats(path: str) -> pl.DataFrame:
@@ -138,3 +141,38 @@ def dataframe_fingerprint(df: pl.DataFrame, columns: list[str]) -> str:
                 hasher.update(payload)
 
     return hasher.hexdigest()
+
+
+def to_inference_arrays(
+    df: pl.DataFrame,
+    af_col: str,
+    beta_col: str,
+    se_col: str,
+) -> InferenceArrays:
+    r"""Convert validated summary statistics into array payloads for inference."""
+    af = np.asarray(df[af_col].to_numpy(), dtype=float)
+    beta_hat = np.asarray(df[beta_col].to_numpy(), dtype=float)
+    std_err = np.asarray(df[se_col].to_numpy(), dtype=float)
+    return InferenceArrays(af=af, beta_hat=beta_hat, s2=std_err**2)
+
+
+def build_maf_masks(af: np.ndarray, maf_grid: np.ndarray) -> np.ndarray:
+    r"""Build per-threshold boolean masks over observations."""
+    af_arr = np.asarray(af)
+    maf_arr = np.asarray(maf_grid)
+    return np.logical_and(
+        af_arr[np.newaxis, :] >= maf_arr[:, np.newaxis],
+        af_arr[np.newaxis, :] <= (1.0 - maf_arr[:, np.newaxis]),
+    )
+
+
+def payload_to_long_dataframe(payload: dict[str, object] | Any) -> pl.DataFrame:
+    r"""Normalize numerics payload mappings into the long-format output dataframe."""
+    columns = {}
+    for name, values in payload.items():
+        if isinstance(values, (list, tuple)):
+            columns[name] = values
+        else:
+            columns[name] = np.asarray(values).tolist()
+    df = pl.DataFrame(columns)
+    return df.select(["mu0", "var0", "maf", "name", "value"])

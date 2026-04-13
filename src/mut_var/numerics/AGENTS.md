@@ -25,8 +25,8 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Simulation configs provide aligned mixture parameter lengths, valid AF generator domains, and positive SE controls.
 
 ## Dependencies
-- **Uses**: `numpy`, `scipy`, `mut_var.contracts`, `mut_var._core` (Cython), `mut_var.solver`, `mut_var.active_set`.
-- **Used by**: `src/mut_var/infer.py`, `src/mut_var/curve.py`, and `src/mut_var/simulate.py`.
+- **Uses**: `numpy`, `scipy`, `mut_var.contracts`, `mut_var.numerics._core` (Cython), `mut_var.numerics.solver`, `mut_var.numerics.active_set`.
+- **Used by**: `src/mut_var/pipelines/inference.py`, `src/mut_var/pipelines/curve.py`, and `src/mut_var/pipelines/simulation.py`.
 - **Boundary**:
   - No file I/O, CLI parsing, logging, or dataframe conversion in this domain.
   - User-facing validation belongs at higher-level adapters before numerics execution.
@@ -51,9 +51,9 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 ## Key Files
 - `src/mut_var/numerics/baseline.py` - baseline mixture fitting with mix-SQP.
 - `src/mut_var/numerics/refit.py` - grid refit with mix-SQP-ordered.
-- `src/mut_var/solver.py` - outer SQP loop (`mix_sqp`, `mix_sqp_ordered`, `build_ordering_matrix`).
-- `src/mut_var/active_set.py` - NumPy active-set inner QP (`solve_qp_nonneg`, `solve_qp_ordered`).
-- `src/mut_var/_core.pyx` - Cython BLAS hot path.
+- `src/mut_var/numerics/solver.py` - outer SQP loop (`mix_sqp`, `mix_sqp_ordered`, `build_ordering_matrix`).
+- `src/mut_var/numerics/active_set.py` - NumPy active-set inner QP (`solve_qp_nonneg`, `solve_qp_ordered`).
+- `src/mut_var/numerics/_core.pyx` - Cython BLAS hot path.
 - `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.
 

@@ -11,7 +11,7 @@ from scipy.stats import norm as scipy_norm
 from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics._solver_utils import is_recoverable_result
 from mut_var.numerics.baseline import Params
-from mut_var.solver import build_ordering_matrix, mix_sqp_ordered
+from mut_var.numerics.solver import build_ordering_matrix, mix_sqp_ordered
 
 
 class RefitConfig(NamedTuple):
