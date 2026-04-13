@@ -10,7 +10,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - CLI entrypoint: `mutvar` (`infer`, `curve`, `simulate`)
   - Package-root pipeline APIs: `run_inference_pipeline`, `run_curve_pipeline`, `run_simulation_pipeline`
   - Numerics APIs: `mut_var.numerics.fit_baseline`, `mut_var.numerics.fit_curve`, `mut_var.numerics.fit_refit_grid`, `mut_var.numerics.simulate_mixture_data`
-  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.numerics.InferenceArrays`, `mut_var.numerics.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.numerics.SimulationNumericsConfig`, `mut_var.SimulationPipelineConfig`, `mut_var.SimulationArtifacts`
+  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.pipelines.InferenceArrays`, `mut_var.pipelines.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.numerics.SimulationNumericsConfig`, `mut_var.SimulationPipelineConfig`, `mut_var.SimulationArtifacts`
 - **Guarantees**:
   - Boundary validation happens at ingress before numerics execute.
   - Pipeline/orchestration APIs accept validated dataframe or array-like inputs and return dataframe outputs for downstream writing/processing.
@@ -34,8 +34,9 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - **Boundary**:
   - `mut_var.cli` is imperative-shell orchestration; do not treat it as numerics API surface.
   - Canonical numerics implementations live under `src/mut_var/numerics`.
+  - Canonical pipeline/orchestration implementations live under `src/mut_var/pipelines`.
   - Numerics-specific contracts are documented in `src/mut_var/numerics/AGENTS.md`.
-  - Prefer package-root imports over reaching into adapter internals.
+  - Prefer package-root imports for public pipeline APIs; use `mut_var.pipelines` for pipeline-specific contract types.
 
 ## Key Decisions
 - Public API is intentionally centralized in `src/mut_var/__init__.py` to keep import contracts stable.
@@ -77,7 +78,8 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - Keep admonition titles/content concise and technically actionable; avoid decorative callouts.
 
 ## Project Structure
-- `src/mut_var/` - package API, CLI shell, pipelines, numerics, plotting adapters.
+- `src/mut_var/` - package API, CLI shell, pipelines, numerics, plotting, and ingress validation helpers.
+- `src/mut_var/pipelines/` - pipeline-facing configs and orchestration entrypoints.
 - `tests/` - behavior and contract regression tests.
 - `benchmarks/` - reproducible runtime benchmark harness and configs.
 - `docs/` - API surface, design plans, and review artifacts.
@@ -85,6 +87,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 
 ## Gotchas
 - Importing internals from `mut_var.cli` is unsupported; use package-root APIs.
+- Pipeline contract types such as `InferenceConfig` and `InferenceArrays` live under `mut_var.pipelines`, not `mut_var.numerics`.
 - Treat `Solution.result` (not presence of `value`) as the success signal for numerics APIs.
 - `mutvar infer` no longer accepts `--batch-size`; numerics are full-batch by contract.
 - `mutvar simulate` writes three files (`.truth.tsv`, `.observed.tsv`, `.meta.tsv`) and does not stream tabular output to stdout.
