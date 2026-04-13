@@ -1,13 +1,13 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=64", "setuptools_scm>=8", "Cython>=3.0", "numpy", "scipy"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mut-var"
 dynamic = ["version"]
 description = ''
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = "MIT"
 keywords = []
 authors = [
@@ -20,16 +20,14 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Cython",
   "Programming Language :: Python :: Implementation :: CPython",
-  "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-    "equinox",
-    "jax",
-    "optimistix",
+    "numpy",
+    "scipy",
     "matplotlib",
     "polars",
-    "jaxtyping"
 ]
 
 [project.scripts]
@@ -50,22 +48,15 @@ docs = [
   "pymdown-extensions==10.21"
 ]
 
-[tool.hatch.metadata]
-allow-direct-references = true
+[tool.setuptools_scm]
+write_to = "src/mut_var/_version.py"
+search_parent_directories = true
 
-[tool.hatch.version]
-source = "vcs"
-raw-options = { search_parent_directories = true }
+[tool.setuptools.packages.find]
+where = ["src"]
 
-[tool.hatch.build.hooks.vcs]
-version-file = "src/mut_var/_version.py"
-
-[tool.hatch.envs.types]
-extra-dependencies = [
-  "mypy>=1.0.0",
-]
-[tool.hatch.envs.types.scripts]
-check = "mypy --install-types --non-interactive {args:src/mut_var tests}"
+[tool.setuptools.package-data]
+"mut_var" = ["*.pyx", "*.pxd"]
 
 [tool.coverage.run]
 source_pkgs = ["mut_var", "tests"]
@@ -88,7 +79,7 @@ exclude_lines = [
 
 
 [tool.ruff]
-target-version = "py37"
+target-version = "py310"
 line-length = 120
 
 [tool.ruff.lint]
@@ -127,7 +118,7 @@ testpaths = ["tests"]
 python_version = "3.11"
 files = ["src/mut_var", "tests"]
 check_untyped_defs = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 ignore_missing_imports = true
 follow_imports = "skip"
 disable_error_code = ["arg-type", "index", "misc", "syntax", "valid-type", "var-annotated"]

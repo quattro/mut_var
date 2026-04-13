@@ -6,11 +6,10 @@ import sys
 
 from pathlib import Path
 
-import jax.nn as jnn
-import jax.numpy as jnp
 import numpy as np
-import optimistix as optx
 import polars as pl
+
+from scipy.special import expit
 
 from mut_var.contracts import RESULTS, Solution
 from mut_var.curve import run_curve_pipeline
@@ -25,13 +24,13 @@ def _copy_fixture(tmp_path: Path) -> Path:
     return data_path
 
 
-def _coef_matrix(coef_df: pl.DataFrame) -> jnp.ndarray:
+def _coef_matrix(coef_df: pl.DataFrame) -> np.ndarray:
     ordered = coef_df.sort("var0")
     selected = ordered.select(["coef_left", "coef_right", "coef_rate", "coef_midpoint"]).to_numpy()
-    return jnp.asarray(selected, dtype=float)
+    return np.asarray(selected, dtype=float)
 
 
-def _expected_midpoint(raw_mid: float, maf: jnp.ndarray) -> float:
+def _expected_midpoint(raw_mid: float, maf: np.ndarray) -> float:
     maf_np = np.asarray(maf, dtype=float)
     positive = maf_np[maf_np > 0.0]
     if positive.size == 0:
@@ -40,14 +39,14 @@ def _expected_midpoint(raw_mid: float, maf: jnp.ndarray) -> float:
     else:
         log_min = float(np.log(np.min(positive) + 1e-12))
         log_span = max(float(np.log(np.max(positive) + 1e-12) - log_min), 1e-6)
-    return float(np.exp(log_min + float(jnn.sigmoid(jnp.asarray(raw_mid))) * log_span))
+    return float(np.exp(log_min + float(expit(np.asarray(raw_mid))) * log_span))
 
 
 def test_fit_only_numerics_has_no_plotting_dependency():
     sys.modules.pop("matplotlib.pyplot", None)
 
-    maf = jnp.asarray([0.001, 0.005, 0.01])
-    value = jnp.asarray([0.2, 0.21, 0.22])
+    maf = np.asarray([0.001, 0.005, 0.01])
+    value = np.asarray([0.2, 0.21, 0.22])
     solution = fit_curve(maf, value)
 
     assert solution.result == RESULTS.successful
@@ -65,7 +64,7 @@ def test_fit_only_pipeline_is_deterministic_and_side_effect_free(tmp_path):
     assert second.columns == ["var0", "coef_left", "coef_right", "coef_rate", "coef_midpoint"]
     assert first.height > 0
     assert second.height > 0
-    assert bool(jnp.allclose(_coef_matrix(first), _coef_matrix(second), rtol=1e-6, atol=1e-6))
+    assert bool(np.allclose(_coef_matrix(first), _coef_matrix(second), rtol=1e-6, atol=1e-6))
 
     assert "mut_var.plotting.curve_plots" not in sys.modules
     assert list(tmp_path.glob("*.png")) == []
@@ -92,32 +91,31 @@ def test_plotting_does_not_change_fit_outputs(tmp_path):
 
     assert fit_only.height > 0
     assert with_plots.height > 0
-    assert bool(jnp.allclose(_coef_matrix(fit_only), _coef_matrix(with_plots), rtol=1e-6, atol=1e-6))
+    assert bool(np.allclose(_coef_matrix(fit_only), _coef_matrix(with_plots), rtol=1e-6, atol=1e-6))
 
 
-def test_fit_curve_passes_throw_false_and_returns_clean_success_stats(monkeypatch):
-    class _FakeOptxSolution:
-        value = jnp.asarray([0.25, 0.75, 1.0, 0.0], dtype=float)
-        result = optx.RESULTS.successful
-        stats = {"num_steps": 13}
+def test_fit_curve_returns_clean_success_stats(monkeypatch):
+    class _FakeSciPySolution:
+        x = np.asarray([0.25, 0.75, 1.0, 0.0], dtype=float)
+        status = 1
+        nfev = 13
 
-    def _fake_least_squares(*args, **kwargs):
-        assert kwargs.get("throw") is False
-        return _FakeOptxSolution()
+    def _fake(*_args, **_kwargs):
+        return _FakeSciPySolution()
 
-    monkeypatch.setattr("mut_var.numerics.curve_fit.optx.least_squares", _fake_least_squares)
+    monkeypatch.setattr("mut_var.numerics.curve_fit.sco.least_squares", _fake)
 
-    solution = fit_curve(jnp.asarray([0.001, 0.005, 0.01]), jnp.asarray([0.2, 0.21, 0.22]))
+    solution = fit_curve(np.asarray([0.001, 0.005, 0.01]), np.asarray([0.2, 0.21, 0.22]))
 
     assert solution.result == RESULTS.successful
     assert solution.value is not None
-    expected_left = float(jnn.sigmoid(jnp.asarray(0.25)))
-    expected_right = expected_left + (1.0 - expected_left) * float(jnn.sigmoid(jnp.asarray(0.75)))
-    expected_midpoint = _expected_midpoint(0.0, jnp.asarray([0.001, 0.005, 0.01]))
+    expected_left = float(expit(0.25))
+    expected_right = expected_left + (1.0 - expected_left) * float(expit(0.75))
+    expected_midpoint = _expected_midpoint(0.0, np.asarray([0.001, 0.005, 0.01]))
     assert bool(
-        jnp.allclose(
+        np.allclose(
             solution.value,
-            jnp.asarray([expected_left, expected_right, 1.0, expected_midpoint]),
+            np.asarray([expected_left, expected_right, 1.0, expected_midpoint]),
             rtol=1e-8,
             atol=1e-8,
         )
@@ -133,25 +131,28 @@ def test_fit_curve_passes_throw_false_and_returns_clean_success_stats(monkeypatc
     assert solution.state is None
 
 
-def test_fit_curve_maps_max_steps_reached_from_optimistix(monkeypatch):
-    class _FakeOptxSolution:
-        value = jnp.asarray([0.1, 0.2, 0.3, 0.0], dtype=float)
-        result = optx.RESULTS.max_steps_reached
-        stats = {"num_steps": 1000}
+def test_fit_curve_maps_max_steps_reached(monkeypatch):
+    class _FakeSciPySolution:
+        x = np.asarray([0.1, 0.2, 0.3, 0.0], dtype=float)
+        status = 0
+        nfev = 1000
 
-    monkeypatch.setattr("mut_var.numerics.curve_fit.optx.least_squares", lambda *args, **kwargs: _FakeOptxSolution())
+    def _fake(*_args, **_kwargs):
+        return _FakeSciPySolution()
 
-    solution = fit_curve(jnp.asarray([0.001, 0.005, 0.01]), jnp.asarray([0.2, 0.21, 0.22]))
+    monkeypatch.setattr("mut_var.numerics.curve_fit.sco.least_squares", _fake)
+
+    solution = fit_curve(np.asarray([0.001, 0.005, 0.01]), np.asarray([0.2, 0.21, 0.22]))
 
     assert solution.result == RESULTS.max_steps_reached
     assert solution.value is not None
-    expected_left = float(jnn.sigmoid(jnp.asarray(0.1)))
-    expected_right = expected_left + (1.0 - expected_left) * float(jnn.sigmoid(jnp.asarray(0.2)))
-    expected_midpoint = _expected_midpoint(0.0, jnp.asarray([0.001, 0.005, 0.01]))
+    expected_left = float(expit(0.1))
+    expected_right = expected_left + (1.0 - expected_left) * float(expit(0.2))
+    expected_midpoint = _expected_midpoint(0.0, np.asarray([0.001, 0.005, 0.01]))
     assert bool(
-        jnp.allclose(
+        np.allclose(
             solution.value,
-            jnp.asarray([expected_left, expected_right, 0.3, expected_midpoint]),
+            np.asarray([expected_left, expected_right, 0.3, expected_midpoint]),
             rtol=1e-8,
             atol=1e-8,
         )
@@ -167,7 +168,7 @@ def test_fit_curve_maps_max_steps_reached_from_optimistix(monkeypatch):
 
 
 def test_fit_curve_bounded_coefficients_and_predictions_for_decreasing_step_like_series():
-    maf = jnp.asarray(
+    maf = np.asarray(
         [
             0.0,
             1.0e-5,
@@ -182,7 +183,7 @@ def test_fit_curve_bounded_coefficients_and_predictions_for_decreasing_step_like
             1.0e-2,
         ]
     )
-    value = jnp.asarray(
+    value = np.asarray(
         [
             0.9113987225089466,
             0.8793662020134873,
@@ -202,20 +203,20 @@ def test_fit_curve_bounded_coefficients_and_predictions_for_decreasing_step_like
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
     assert solution.value is not None
-    left, right, _rate = [float(x) for x in solution.value[:3]]
+    left, right, _ = [float(x) for x in solution.value[:3]]
     assert 0.0 <= left <= right <= 1.0
     midpoint = float(solution.value[3])
     positive_maf = maf[maf > 0.0]
     assert float(positive_maf.min()) <= midpoint <= float(positive_maf.max())
 
     fitted = curve(maf, solution.value)
-    assert bool(jnp.isfinite(fitted).all())
+    assert bool(np.isfinite(fitted).all())
     assert bool((fitted >= 0.0).all())
     assert bool((fitted <= 1.0).all())
 
 
 def test_fit_curve_bounded_coefficients_and_predictions_for_increasing_step_like_series():
-    maf = jnp.asarray(
+    maf = np.asarray(
         [
             0.0,
             1.0e-5,
@@ -230,7 +231,7 @@ def test_fit_curve_bounded_coefficients_and_predictions_for_increasing_step_like
             1.0e-2,
         ]
     )
-    value = jnp.asarray(
+    value = np.asarray(
         [
             0.003559415880098624,
             0.003229568717924408,
@@ -250,14 +251,14 @@ def test_fit_curve_bounded_coefficients_and_predictions_for_increasing_step_like
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
     assert solution.value is not None
-    left, right, _rate = [float(x) for x in solution.value[:3]]
+    left, right, _ = [float(x) for x in solution.value[:3]]
     assert 0.0 <= left <= right <= 1.0
     midpoint = float(solution.value[3])
     positive_maf = maf[maf > 0.0]
     assert float(positive_maf.min()) <= midpoint <= float(positive_maf.max())
 
     fitted = curve(maf, solution.value)
-    assert bool(jnp.isfinite(fitted).all())
+    assert bool(np.isfinite(fitted).all())
     assert bool((fitted >= 0.0).all())
     assert bool((fitted <= 1.0).all())
 
@@ -268,7 +269,7 @@ def test_curve_pipeline_accepts_max_steps_reached(monkeypatch, tmp_path):
     def _fake_fit_curve(maf, value):
         del maf, value
         return Solution(
-            value=jnp.asarray([0.2, 0.8, -2.0, 0.003]),
+            value=np.asarray([0.2, 0.8, -2.0, 0.003]),
             result=RESULTS.max_steps_reached,
             stats={"n_obs": 4, "epoch_count": 1000, "converged": False},
             state=None,
@@ -288,7 +289,7 @@ def test_curve_pipeline_logs_warning_for_poor_fit(monkeypatch, tmp_path, caplog)
     def _fake_fit_curve(maf, value):
         del maf, value
         return Solution(
-            value=jnp.asarray([0.2, 0.8, -2.0, 0.003]),
+            value=np.asarray([0.2, 0.8, -2.0, 0.003]),
             result=RESULTS.successful,
             stats={
                 "n_obs": 4,
@@ -311,20 +312,21 @@ def test_curve_pipeline_logs_warning_for_poor_fit(monkeypatch, tmp_path, caplog)
 
 
 def test_fit_curve_rate_initialization_follows_endpoint_trend(monkeypatch):
-    class _FakeOptxSolution:
-        def __init__(self, y0):
-            self.value = y0
-            self.result = optx.RESULTS.max_steps_reached
-            self.stats = {"num_steps": 1}
+    class _FakeSciPySolution:
+        def __init__(self, x0: np.ndarray):
+            self.x = x0
+            self.status = 0
+            self.nfev = 1
 
-    def _fake_least_squares(*args, **kwargs):
-        return _FakeOptxSolution(kwargs["y0"])
+    def _fake_least_squares(*args, **_kwargs):
+        x0 = args[1]  # second positional arg is the initial params
+        return _FakeSciPySolution(x0)
 
-    monkeypatch.setattr("mut_var.numerics.curve_fit.optx.least_squares", _fake_least_squares)
+    monkeypatch.setattr("mut_var.numerics.curve_fit.sco.least_squares", _fake_least_squares)
 
-    maf = jnp.asarray([0.0, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2])
-    decreasing = jnp.asarray([0.9, 0.8, 0.7, 0.6, 0.5])
-    increasing = jnp.asarray([0.1, 0.2, 0.3, 0.4, 0.5])
+    maf = np.asarray([0.0, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2])
+    decreasing = np.asarray([0.9, 0.8, 0.7, 0.6, 0.5])
+    increasing = np.asarray([0.1, 0.2, 0.3, 0.4, 0.5])
 
     dec_sol = fit_curve(maf, decreasing)
     inc_sol = fit_curve(maf, increasing)
@@ -336,7 +338,7 @@ def test_fit_curve_rate_initialization_follows_endpoint_trend(monkeypatch):
 
 
 def test_fit_curve_sets_poor_fit_for_step_like_nonmonotone_series():
-    maf = jnp.asarray(
+    maf = np.asarray(
         [
             0.0,
             1.0e-5,
@@ -351,7 +353,7 @@ def test_fit_curve_sets_poor_fit_for_step_like_nonmonotone_series():
             1.0e-2,
         ]
     )
-    value = jnp.asarray(
+    value = np.asarray(
         [
             0.9113987225089466,
             0.8793662020134873,
@@ -374,8 +376,8 @@ def test_fit_curve_sets_poor_fit_for_step_like_nonmonotone_series():
 
 
 def test_fit_curve_sets_non_poor_fit_for_smooth_monotone_series():
-    maf = jnp.asarray([0.001, 0.005, 0.01, 0.02])
-    value = jnp.asarray([0.78, 0.75, 0.73, 0.70])
+    maf = np.asarray([0.001, 0.005, 0.01, 0.02])
+    value = np.asarray([0.78, 0.75, 0.73, 0.70])
 
     solution = fit_curve(maf, value)
 
@@ -384,9 +386,9 @@ def test_fit_curve_sets_non_poor_fit_for_smooth_monotone_series():
 
 
 def test_fit_curve_learns_different_midpoints_for_shifted_curves():
-    maf = jnp.asarray([0.0, 1.0e-5, 2.0e-5, 5.0e-5, 1.0e-4, 2.0e-4, 5.0e-4, 1.0e-3, 2.0e-3, 5.0e-3, 1.0e-2])
-    early_value = curve(maf, jnp.asarray([1.0e-9, 2.0e-4, 6.0, 5.0e-5]))
-    late_value = curve(maf, jnp.asarray([1.0e-9, 2.0e-4, 6.0, 2.0e-3]))
+    maf = np.asarray([0.0, 1.0e-5, 2.0e-5, 5.0e-5, 1.0e-4, 2.0e-4, 5.0e-4, 1.0e-3, 2.0e-3, 5.0e-3, 1.0e-2])
+    early_value = curve(maf, np.asarray([1.0e-9, 2.0e-4, 6.0, 5.0e-5]))
+    late_value = curve(maf, np.asarray([1.0e-9, 2.0e-4, 6.0, 2.0e-3]))
 
     early_solution = fit_curve(maf, early_value)
     late_solution = fit_curve(maf, late_value)

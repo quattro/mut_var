@@ -1,218 +1,91 @@
 from __future__ import annotations
 
 # pattern: Functional Core
-from typing import Any, Callable, NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
-import equinox as eqx
-import jax
-import jax.nn as nn
-import jax.numpy as jnp
-import optimistix as optx
+import numpy as np
 
-from jax.scipy.special import xlogy
-from jax.scipy.stats import norm
-from jaxtyping import ArrayLike
+from scipy.stats import norm as scipy_norm
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
-from mut_var.numerics._solver_utils import (
-    exponential_map_simplex,
-    is_recoverable_result,
-    simplex_tangent_direction,
-)
+from mut_var.numerics._solver_utils import is_recoverable_result
 from mut_var.numerics.baseline import Params
+from mut_var.solver import build_ordering_matrix, mix_sqp_ordered
 
 
 class RefitConfig(NamedTuple):
-    penalty: float = 1.0
+    penalty: float = 1.0  # Kept for API compatibility; ordering constraints are now hard.
     max_iter: int = 100
-    tol: float = 1e-3
-    step_size: float = 0.01
+    tol: float = 1e-5
+    step_size: float = 0.01  # Kept for API compatibility; unused in mix-SQP.
 
 
-def _pdf(beta_hat, s2, mean, var_k):
-    return norm.pdf(beta_hat, loc=mean, scale=jnp.sqrt(s2 + var_k))
+def _build_likelihood_matrix(
+    beta_hat: np.ndarray,
+    s2: np.ndarray,
+    mu_k: np.ndarray,
+    var_k: np.ndarray,
+) -> np.ndarray:
+    """Build ``(n, K)`` likelihood matrix using fixed component parameters.
 
-
-pdf = jax.vmap(_pdf, (None, None, 0, 0), 1)
-
-
-def penalized_objective(
-    param: Params,
-    likelihoods: ArrayLike,
-    weights: ArrayLike,
-    alpha: ArrayLike,
-    baseline_param: Params,
-    penalty: ArrayLike,
-):
-    r"""Evaluate penalized refit objective over threshold-weighted likelihoods."""
-    mixture_pdf = jnp.clip(likelihoods @ param.pi, min=jnp.finfo(float).tiny)
-    obj_term = jnp.sum(weights * jnp.log(mixture_pdf))
-    log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
-
-    p1 = jnp.sum(nn.relu(baseline_param.pi[1:] * param.pi[:-1] - baseline_param.pi[:-1] * param.pi[1:]))
-    rel_point_mass_dist = nn.relu(baseline_param.pi[0] - param.pi[0])
-
-    penalty_term = penalty * (p1 + rel_point_mass_dist)
-    return obj_term - log_penalty - penalty_term
-
-
-def _fit_single_refit(
-    likelihoods: ArrayLike,
-    weights: ArrayLike,
-    init: Params,
-    config: RefitConfig,
-    obj,
-    verbose: bool | Callable[..., None] = False,
-) -> Solution:
-    likelihoods_arr = jnp.asarray(likelihoods)
-    weights_arr = jnp.asarray(weights)
-
-    if likelihoods_arr.ndim != 2:
-        return Solution(
-            value=init,
-            result=RESULTS.invalid_input,
-            stats={"reason": "likelihoods must be a 2D array"},
-            state=None,
-        )
-
-    if weights_arr.ndim != 1 or weights_arr.shape[0] != likelihoods_arr.shape[0]:
-        return Solution(
-            value=init,
-            result=RESULTS.invalid_input,
-            stats={"reason": "weights must be 1D and aligned with likelihood rows"},
-            state=None,
-        )
-
-    if not bool(jnp.isfinite(likelihoods_arr).all()):
-        return Solution(
-            value=init,
-            result=RESULTS.invalid_input,
-            stats={"reason": "likelihoods contain non-finite values"},
-            state=None,
-        )
-
-    if int(jnp.sum(weights_arr > 0.0)) == 0:
-        return Solution(
-            value=init,
-            result=RESULTS.empty_subset,
-            stats={"reason": "all threshold weights are zero"},
-            state=None,
-        )
-
-    alpha = jnp.array([10.0] + (len(init.pi) - 1) * [1.0])
-    params = Params(jnp.asarray(init.pi), jnp.asarray(init.mu_k), jnp.asarray(init.var_k))
-    return _fit_single_refit_optimistix(
-        likelihoods=likelihoods_arr,
-        weights=weights_arr,
-        alpha=alpha,
-        init=params,
-        objective=obj,
-        config=config,
-        verbose=verbose,
-    )
-
-
-def _fit_single_refit_optimistix(
-    *,
-    likelihoods: ArrayLike,
-    weights: ArrayLike,
-    alpha: ArrayLike,
-    init: Params,
-    objective,
-    config: RefitConfig,
-    verbose: bool | Callable[..., None] = False,
-) -> Solution:
-    def _propose_candidate(params_now: Params, direction: Params, step_size: ArrayLike) -> Params:
-        tangent_pi = simplex_tangent_direction(params_now.pi, direction.pi)
-        pi = exponential_map_simplex(params_now.pi, tangent_pi, step_size)
-        return Params(pi, params_now.mu_k, params_now.var_k)
-
-    def _neg_objective(params_now: Params, _unused: Any) -> ArrayLike:
-        return -objective(params_now, likelihoods, weights, alpha, init, config.penalty)
-
-    solver = MutVarSolver(
-        step_update=_propose_candidate,
-        step_size=config.step_size,
-        rtol=config.tol,
-        atol=config.tol,
-        verbose=verbose,
-    )
-    optx_solution = optx.minimise(
-        fn=_neg_objective,
-        solver=solver,
-        y0=init,
-        args=None,
-        max_steps=config.max_iter,
-        throw=False,
-    )
-
-    objective_value = objective(optx_solution.value, likelihoods, weights, alpha, init, config.penalty)
-    mapped_result = map_optimistix_result(optx_solution.result)
-    if not bool(jnp.isfinite(objective_value)):
-        return Solution(
-            value=optx_solution.value,
-            result=RESULTS.nonfinite_objective,
-            stats={
-                "epoch": int(optx_solution.stats.get("num_steps", 0)),
-                "objective": float(objective_value),
-            },
-            state=None,
-        )
-
-    return Solution(
-        value=optx_solution.value,
-        result=mapped_result,
-        stats={
-            "epoch_count": int(optx_solution.stats.get("num_steps", 0)),
-            "objective": float(objective_value),
-            "converged": mapped_result == RESULTS.successful,
-            "n_obs_used": int(jnp.sum(weights > 0.0)),
-            "likelihood_shape": tuple(int(x) for x in jnp.asarray(likelihoods).shape),
-        },
-        state=None,
-    )
+    Identical layout to the baseline: column 0 is the null component, columns
+    1..K-1 use ``mu_k`` and ``var_k`` from the fitted baseline model.
+    """
+    n = len(beta_hat)
+    K = len(var_k) + 1
+    L = np.empty((n, K), dtype=float)
+    L[:, 0] = scipy_norm.pdf(beta_hat, loc=0.0, scale=np.sqrt(s2))
+    for k in range(1, K):
+        L[:, k] = scipy_norm.pdf(beta_hat, loc=float(mu_k[k - 1]), scale=np.sqrt(s2 + var_k[k - 1]))
+    return L
 
 
 def fit_refit_grid(
-    beta_hat: ArrayLike,
-    s2: ArrayLike,
-    maf_masks: ArrayLike,
+    beta_hat: Any,
+    s2: Any,
+    maf_masks: Any,
     init: Params,
     config: RefitConfig,
     verbose: bool | Callable[..., None] = False,
 ) -> Solution:
-    r"""Sequentially refit mixture weights across MAF-threshold masks.
+    r"""Sequentially refit mixture weights across MAF-threshold masks via mix-SQP-ordered.
+
+    Component means and variances are fixed from ``init`` (baseline output).
+    For each MAF threshold slice, mix-SQP-ordered optimises the mixture weights
+    subject to the ordering constraint that ``pi / pi_prev`` is nonincreasing,
+    warm-started from the previous threshold's solution.
 
     **Arguments:**
 
     - `beta_hat`: 1D effect-size estimates.
     - `s2`: 1D positive variances aligned with `beta_hat`.
     - `maf_masks`: 2D boolean masks selecting observations per threshold.
-    - `init`: Initial parameters from baseline fit.
+    - `init`: Initial parameters from the baseline fit.
     - `config`: Refit solver controls.
+    - `verbose`: ``False`` for silent; ``True`` prints each SQP step;
+      a callable receives ``(step, obj)`` keyword arguments.
 
     **Returns:**
 
-    - `Solution` with one fitted model per threshold (plus initial model).
+    - `Solution` with one fitted model per threshold plus the initial model.
 
     **Failure Modes:**
 
-    - `RESULTS.invalid_input` for shape/mask mismatches.
+    - `RESULTS.invalid_input` for shape/mask mismatches or non-finite likelihoods.
     - `RESULTS.empty_subset` for empty threshold slices.
     - `RESULTS.nonfinite_objective` for non-finite objective values.
-    - `RESULTS.max_steps_reached` when any threshold solve does not converge in time.
+    - `RESULTS.max_steps_reached` when any threshold solve does not converge.
     """
-    beta_hat_arr = jnp.asarray(beta_hat)
-    s2_arr = jnp.asarray(s2)
-    masks_arr = jnp.asarray(maf_masks, dtype=bool)
+    beta_hat_arr = np.asarray(beta_hat, dtype=float)
+    s2_arr = np.asarray(s2, dtype=float)
+    masks_arr = np.asarray(maf_masks, dtype=bool)
 
     if beta_hat_arr.ndim != 1 or s2_arr.ndim != 1 or beta_hat_arr.shape[0] != s2_arr.shape[0]:
         return Solution(
             value=[init],
             result=RESULTS.invalid_input,
             stats={"reason": "beta_hat and s2 must be 1D arrays of equal length"},
-            state=None,
         )
 
     if masks_arr.ndim != 2 or masks_arr.shape[1] != beta_hat_arr.shape[0]:
@@ -220,62 +93,103 @@ def fit_refit_grid(
             value=[init],
             result=RESULTS.invalid_input,
             stats={"reason": "maf_masks must be a 2D mask array over observations"},
-            state=None,
         )
 
-    obj = eqx.filter_jit(penalized_objective)
+    # Restrict to observations that appear in at least one threshold mask.
+    active_obs = np.any(masks_arr, axis=0)
+    beta_hat_active = beta_hat_arr[active_obs]
+    s2_active = s2_arr[active_obs]
+    masks_active = masks_arr[:, active_obs]
 
-    models = [init]
+    # Pre-compute likelihoods once; component parameters are fixed across all thresholds.
+    L_full = _build_likelihood_matrix(beta_hat_active, s2_active, init.mu_k, init.var_k)
+
+    if not np.isfinite(L_full).all():
+        return Solution(
+            value=[init],
+            result=RESULTS.invalid_input,
+            stats={"reason": "likelihood matrix contains non-finite values"},
+        )
+
+    # Replace zero rows with tiny floor.
+    row_sums = L_full.sum(axis=1)
+    zero_rows = row_sums == 0.0
+    if zero_rows.any():
+        L_full[zero_rows, :] = np.finfo(float).tiny
+
+    models: list[Params] = [init]
     any_max_steps = False
-    threshold_diagnostics: list[dict[str, int | float | tuple[int, int]]] = []
-    active_observations = jnp.any(masks_arr, axis=0)
-    beta_hat_active = beta_hat_arr[active_observations]
-    s2_active = s2_arr[active_observations]
-    masks_active = masks_arr[:, active_observations]
-
-    # Refit stage optimizes mixture weights only, so component means/variances
-    # are fixed across threshold solves and likelihoods can be cached once.
-    mu_k = jnp.pad(init.mu_k, (1, 0))
-    var_k = jnp.pad(init.var_k, (1, 0))
-    likelihoods = pdf(beta_hat_active, s2_active, mu_k, var_k)
+    threshold_diagnostics: list[dict[str, Any]] = []
 
     for idx in range(masks_arr.shape[0]):
-        weights = masks_active[idx].astype(jnp.float64)
-        n_obs = int(jnp.sum(weights))
+        mask = masks_active[idx]
+        n_obs = int(mask.sum())
+
         if n_obs == 0:
             return Solution(
                 value=models,
                 result=RESULTS.empty_subset,
                 stats={"reason": f"maf mask at index {idx} is empty"},
-                state=None,
             )
 
-        fit_solution = _fit_single_refit(likelihoods, weights, models[-1], config, obj, verbose)
+        L_sub = L_full[mask]
 
-        if not is_recoverable_result(fit_solution.result):
+        # Replace zero rows in this subset.
+        sub_row_sums = L_sub.sum(axis=1)
+        sub_zero = sub_row_sums == 0.0
+        if sub_zero.any():
+            L_sub = L_sub.copy()
+            L_sub[sub_zero, :] = np.finfo(float).tiny
+
+        prev_params = models[-1]
+        A = build_ordering_matrix(prev_params.pi)
+
+        try:
+            pi, info = mix_sqp_ordered(
+                L_sub,
+                A=A,
+                baseline=prev_params.pi,
+                max_iter=config.max_iter,
+                tol=config.tol,
+                verbose=verbose,
+            )
+        except Exception as exc:
             return Solution(
                 value=models,
-                result=fit_solution.result,
-                stats=fit_solution.stats,
-                state=fit_solution.state,
+                result=RESULTS.nonfinite_objective,
+                stats={"reason": f"mix-SQP-ordered failed at threshold {idx}: {exc}"},
             )
-        if fit_solution.result == RESULTS.max_steps_reached:
+
+        result = RESULTS.successful if info["converged"] else RESULTS.max_steps_reached
+        if not is_recoverable_result(result):
+            return Solution(
+                value=models,
+                result=result,
+                stats={"reason": f"non-recoverable result at threshold {idx}"},
+            )
+        if result == RESULTS.max_steps_reached:
             any_max_steps = True
 
-        diag = dict(fit_solution.stats)
-        diag["threshold_index"] = idx
-        threshold_diagnostics.append(diag)
+        threshold_diagnostics.append(
+            {
+                "threshold_index": idx,
+                "epoch_count": info["n_iter"],
+                "objective": info["objective"],
+                "converged": info["converged"],
+                "n_obs_used": n_obs,
+                "likelihood_shape": (int(L_sub.shape[0]), int(L_sub.shape[1])),
+            }
+        )
+        new_params = Params(pi=pi, mu_k=prev_params.mu_k, var_k=prev_params.var_k)
+        models.append(new_params)
 
-        models.append(fit_solution.value)
-
-    result = RESULTS.max_steps_reached if any_max_steps else RESULTS.successful
+    final_result = RESULTS.max_steps_reached if any_max_steps else RESULTS.successful
     return Solution(
         value=models,
-        result=result,
+        result=final_result,
         stats={
             "num_models": len(models),
             "num_thresholds": int(masks_arr.shape[0]),
             "threshold_diagnostics": threshold_diagnostics,
         },
-        state=None,
     )

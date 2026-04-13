@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
-import jax
-import jax.numpy as jnp
+import numpy as np
 import polars as pl
 
 from mut_var.infer import InferenceArrays
@@ -24,21 +23,21 @@ def to_inference_arrays(
 
     **Returns:**
 
-    - `InferenceArrays` with JAX arrays for AF, beta, and variance (`se^2`).
+    - `InferenceArrays` with numpy arrays for AF, beta, and variance (``se^2``).
     """
-    af = jnp.asarray(df[af_col].to_jax())
-    beta_hat = jnp.asarray(df[beta_col].to_jax())
-    std_err = jnp.asarray(df[se_col].to_jax())
+    af = np.asarray(df[af_col].to_numpy(), dtype=float)
+    beta_hat = np.asarray(df[beta_col].to_numpy(), dtype=float)
+    std_err = np.asarray(df[se_col].to_numpy(), dtype=float)
     return InferenceArrays(af=af, beta_hat=beta_hat, s2=std_err**2)
 
 
-def build_maf_masks(af: jax.Array, maf_grid: jax.Array) -> jax.Array:
+def build_maf_masks(af: np.ndarray, maf_grid: np.ndarray) -> np.ndarray:
     r"""Build per-threshold boolean masks over observations."""
-    af_arr = jnp.asarray(af)
-    maf_arr = jnp.asarray(maf_grid)
-    return jnp.logical_and(
-        af_arr[jnp.newaxis, :] >= maf_arr[:, jnp.newaxis],
-        af_arr[jnp.newaxis, :] <= (1.0 - maf_arr[:, jnp.newaxis]),
+    af_arr = np.asarray(af)
+    maf_arr = np.asarray(maf_grid)
+    return np.logical_and(
+        af_arr[np.newaxis, :] >= maf_arr[:, np.newaxis],
+        af_arr[np.newaxis, :] <= (1.0 - maf_arr[:, np.newaxis]),
     )
 
 
@@ -49,6 +48,6 @@ def payload_to_long_dataframe(payload: Mapping[str, object]) -> pl.DataFrame:
         if isinstance(values, (list, tuple)):
             columns[name] = values
         else:
-            columns[name] = jnp.asarray(values).tolist()
+            columns[name] = np.asarray(values).tolist()
     df = pl.DataFrame(columns)
     return df.select(["mu0", "var0", "maf", "name", "value"])

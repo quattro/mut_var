@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import jax
 import polars as pl
 import pytest
 
 from tests.helpers import fixture_path
-
-jax.config.update("jax_enable_x64", True)
 
 
 @pytest.fixture

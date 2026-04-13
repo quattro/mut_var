@@ -109,7 +109,7 @@ def test_invalid_maf_grid_returns_nonzero(monkeypatch, tmp_path):
             "0.1",
             "--highest",
             "0.05",
-            "--num_breaks",
+            "--num-breaks",
             "10",
         ]
     )

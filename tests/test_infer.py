@@ -1,7 +1,7 @@
 import importlib.util
 import logging
 
-import jax.numpy as jnp
+import numpy as np
 import polars as pl
 import pytest
 
@@ -98,9 +98,9 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df,
     import mut_var.numerics.refit as refit_module
 
     baseline_params = baseline_module.Params(
-        pi=jnp.asarray([1.0], dtype=jnp.float64),
-        mu_k=jnp.asarray([], dtype=jnp.float64),
-        var_k=jnp.asarray([], dtype=jnp.float64),
+        pi=np.asarray([1.0], dtype=float),
+        mu_k=np.asarray([], dtype=float),
+        var_k=np.asarray([], dtype=float),
     )
 
     monkeypatch.setattr(
@@ -176,9 +176,9 @@ def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeyp
     import mut_var.numerics.refit as refit_module
 
     baseline_params = baseline_module.Params(
-        pi=jnp.asarray([0.9, 0.1], dtype=jnp.float64),
-        mu_k=jnp.asarray([0.0], dtype=jnp.float64),
-        var_k=jnp.asarray([1e-4], dtype=jnp.float64),
+        pi=np.asarray([0.9, 0.1], dtype=float),
+        mu_k=np.asarray([0.0], dtype=float),
+        var_k=np.asarray([1e-4], dtype=float),
     )
 
     monkeypatch.setattr(

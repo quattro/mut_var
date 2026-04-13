@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 # pattern: Functional Core
+import enum
+
+from dataclasses import dataclass
 from typing import Any
 
-import equinox as eqx
-import equinox.internal as eqxi
 
+class RESULTS(enum.Enum):
+    r"""Canonical status codes for numerics operations.
 
-class RESULTS(eqxi.Enumeration):
+    Used as the ``result`` field of every :class:`Solution` returned by
+    numerics kernels.  Downstream callers should branch on these values rather
+    than inspecting ``Solution.value`` directly.
+    """
+
     successful = "successful"
     invalid_input = "invalid_input"
     empty_subset = "empty_subset"
@@ -15,7 +22,18 @@ class RESULTS(eqxi.Enumeration):
     max_steps_reached = "max_steps_reached"
 
 
-class Solution(eqx.Module):
+@dataclass(frozen=True)
+class Solution:
+    r"""Immutable result container for all numerics operations.
+
+    **Attributes:**
+
+    - ``value``: The computed result (type depends on the calling function).
+    - ``result``: Status code from :class:`RESULTS`.
+    - ``stats``: Optional diagnostics dict (step counts, objective values, …).
+    - ``state``: Reserved; always ``None`` in current implementations.
+    """
+
     value: Any
     result: RESULTS
     stats: dict[str, Any] | None = None
@@ -23,5 +41,5 @@ class Solution(eqx.Module):
 
     @property
     def ok(self) -> bool:
-        r"""Return `True` only when `result` is `RESULTS.successful`."""
+        r"""Return ``True`` only when ``result`` is ``RESULTS.successful``."""
         return bool(self.result == RESULTS.successful)

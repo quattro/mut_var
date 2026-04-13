@@ -8,12 +8,8 @@ from collections.abc import Callable
 # Reason: preserves compatibility while consolidating numerics and orchestration entrypoints.
 from typing import Any, Mapping, NamedTuple, TYPE_CHECKING
 
-import jax.debug as jdb
-import jax.numpy as jnp
-import jax.random as rdm
+import numpy as np
 import polars as pl
-
-from jaxtyping import ArrayLike
 
 from mut_var.contracts import RESULTS, Solution
 from mut_var.io import validate_maf_grid, validate_numeric_columns, validate_required_columns, validate_sumstats_domain
@@ -24,15 +20,15 @@ if TYPE_CHECKING:
 
 
 class InferenceArrays(NamedTuple):
-    af: ArrayLike
-    beta_hat: ArrayLike
-    s2: ArrayLike
+    af: np.ndarray
+    beta_hat: np.ndarray
+    s2: np.ndarray
 
 
 class InferenceConfig(NamedTuple):
     num_clusters: int
     max_iter: int = 100
-    tol: float = 1e-3
+    tol: float = 1e-5
     step_size: float = 0.01
     filter_threshold: float = 1e-8
     penalty: float = 1.0
@@ -62,9 +58,10 @@ class InferenceConfig(NamedTuple):
 
 def _filter_components(params: Params, threshold: float) -> Params:
     keep = params.pi > threshold
-    keep = keep.at[0].set(True)
+    keep = keep.copy()
+    keep[0] = True  # always keep the null component
     pi = params.pi[keep]
-    pi = pi / jnp.sum(pi)
+    pi = pi / np.sum(pi)
     return params.__class__(
         pi=pi,
         mu_k=params.mu_k[keep[1:]],
@@ -72,28 +69,28 @@ def _filter_components(params: Params, threshold: float) -> Params:
     )
 
 
-def _build_long_payload(models: list[Params], maf_grid: ArrayLike, af: ArrayLike) -> dict[str, Any]:
-    maf_arr = jnp.asarray(maf_grid, dtype=jnp.float64)
-    af_arr = jnp.asarray(af, dtype=jnp.float64)
+def _build_long_payload(models: list[Params], maf_grid: np.ndarray, af: np.ndarray) -> dict[str, Any]:
+    maf_arr = np.asarray(maf_grid, dtype=float)
+    af_arr = np.asarray(af, dtype=float)
 
-    empirical_min_maf = jnp.minimum(jnp.min(af_arr), 1.0 - jnp.max(af_arr))
-    maf_values = jnp.concatenate((jnp.asarray([empirical_min_maf], dtype=jnp.float64), maf_arr))
+    empirical_min_maf = float(np.minimum(np.min(af_arr), 1.0 - np.max(af_arr)))
+    maf_values = np.concatenate(([empirical_min_maf], maf_arr))
     names = [f"pi{idx}" for idx in range(len(models))]
 
-    mu0 = jnp.asarray(jnp.pad(models[0].mu_k, (1, 0)), dtype=jnp.float64)
-    var0 = jnp.asarray(jnp.pad(models[0].var_k, (1, 0)), dtype=jnp.float64)
+    mu0 = np.pad(models[0].mu_k, (1, 0)).astype(float)
+    var0 = np.pad(models[0].var_k, (1, 0)).astype(float)
 
     if any(model.pi.shape[0] != mu0.shape[0] for model in models):
         raise ValueError("All models must keep the same number of mixture components.")
 
-    values = jnp.concatenate([jnp.asarray(model.pi, dtype=jnp.float64) for model in models])
+    values = np.concatenate([np.asarray(model.pi, dtype=float) for model in models])
     n_comp = int(mu0.shape[0])
     name_values = [name for name in names for _ in range(n_comp)]
 
     return {
-        "mu0": jnp.tile(mu0, len(models)),
-        "var0": jnp.tile(var0, len(models)),
-        "maf": jnp.repeat(maf_values, n_comp),
+        "mu0": np.tile(mu0, len(models)),
+        "var0": np.tile(var0, len(models)),
+        "maf": np.repeat(maf_values, n_comp),
         "name": name_values,
         "value": values,
     }
@@ -104,7 +101,7 @@ def _reason_from_solution(solution: Solution) -> str:
         reason = solution.stats.get("reason")
         if isinstance(reason, str) and reason.strip():
             return reason
-    return f"inference failed with status '{RESULTS[solution.result]}'."
+    return f"inference failed with status '{solution.result.value}'."
 
 
 def _payload_from_solution(solution: Solution) -> Mapping[str, object]:
@@ -126,27 +123,9 @@ def _solver_debug_callback(
 ) -> bool | Callable[..., None]:
     if not workflow_log.isEnabledFor(logging.DEBUG):
         return False
-    """
-    Returns a Callable[..., None] that can be called inside JIT code
-    and logs its keyword arguments via jax.debug.callback.
-    """
 
-    def _verbose(**kwargs: tuple[str, Any]) -> None:
-        if not kwargs:
-            return
-
-        # We build format + args outside the callback so only
-        # concrete runtime values are transferred.
-        items = list(kwargs.values())
-        fmt = ", ".join(f"{k}: %s" for k, _ in items)
-        fmt = f"{stage} | {fmt}"
-        args = tuple(v for _, v in items)
-
-        def _log_callback(*cb_args):
-            workflow_log.debug(fmt, *cb_args)
-
-        # Pass only runtime values positionally
-        jdb.callback(_log_callback, *args)
+    def _verbose(step: int, obj: float, **_kw: Any) -> None:
+        workflow_log.debug("%s | Step: %d, obj: %.6f", stage, step, obj)
 
     return _verbose
 
@@ -175,7 +154,7 @@ def run_inference_pipeline(
     - `lowest`: Minimum MAF threshold for grid construction.
     - `highest`: Maximum MAF threshold for grid construction.
     - `num_breaks`: Number of MAF grid breakpoints.
-    - `seed`: PRNG seed for baseline initialization.
+    - `seed`: PRNG seed (retained for API compatibility; currently unused).
     - `config`: Optional numerics config; defaults to `InferenceConfig(num_clusters=30)`.
     - `log`: Optional logger for workflow diagnostics.
 
@@ -203,32 +182,29 @@ def run_inference_pipeline(
     workflow_log.info("inference pipeline: input validation complete")
 
     workflow_log.info("inference pipeline: converting tabular data to arrays")
-    arrays = to_inference_arrays(
-        df,
-        af_col=af_col,
-        beta_col=beta_col,
-        se_col=se_col,
-    )
+    arrays = to_inference_arrays(df, af_col=af_col, beta_col=beta_col, se_col=se_col)
 
     workflow_log.info("inference pipeline: building maf grid and masks")
-    maf_grid = jnp.exp(jnp.linspace(jnp.log(lowest), jnp.log(highest), num_breaks))
+    maf_grid = np.exp(np.linspace(np.log(lowest), np.log(highest), num_breaks))
     maf_masks = build_maf_masks(arrays.af, maf_grid)
     inference_config = config if config is not None else InferenceConfig(num_clusters=30)
 
     workflow_log.info("inference pipeline: starting numerics")
-    beta_hat = jnp.asarray(arrays.beta_hat)
-    s2 = jnp.asarray(arrays.s2)
+    beta_hat = np.asarray(arrays.beta_hat, dtype=float)
+    s2 = np.asarray(arrays.s2, dtype=float)
 
     baseline_config = inference_config.to_baseline_config()
-    workflow_log.info(f"inference pipeline: fitting baseline model with config {baseline_config}")
+    workflow_log.info("inference pipeline: fitting baseline model with config %s", baseline_config)
     baseline_solution = fit_baseline(
         beta_hat=beta_hat,
         s2=s2,
-        key=rdm.PRNGKey(seed),
         config=baseline_config,
         verbose=_solver_debug_callback(workflow_log, "baseline"),
     )
-    workflow_log.info("inference pipeline: baseline fit completed with result '%s'", RESULTS[baseline_solution.result])
+    workflow_log.info(
+        "inference pipeline: baseline fit completed with result '%s'",
+        baseline_solution.result.value,
+    )
 
     if not is_recoverable_result(baseline_solution.result):
         solution = baseline_solution
@@ -245,7 +221,10 @@ def run_inference_pipeline(
             config=inference_config.to_refit_config(),
             verbose=_solver_debug_callback(workflow_log, "refit"),
         )
-        workflow_log.info("inference pipeline: refit grid completed with result '%s'", RESULTS[refit_solution.result])
+        workflow_log.info(
+            "inference pipeline: refit grid completed with result '%s'",
+            refit_solution.result.value,
+        )
 
         if not is_recoverable_result(refit_solution.result):
             solution = refit_solution
@@ -262,10 +241,12 @@ def run_inference_pipeline(
                     "baseline": baseline_solution.stats,
                     "refit": refit_solution.stats,
                 },
-                state=None,
             )
 
-    workflow_log.info("inference pipeline: numerics completed with result '%s'", RESULTS[solution.result])
+    workflow_log.info(
+        "inference pipeline: numerics completed with result '%s'",
+        solution.result.value,
+    )
 
     workflow_log.info("inference pipeline: preparing output dataframe")
     output_payload = _payload_from_solution(solution)

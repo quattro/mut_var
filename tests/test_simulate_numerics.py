@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import jax.numpy as jnp
+import numpy as np
 
 from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import simulate_mixture_data, SimulationNumericsConfig
@@ -73,13 +73,13 @@ def test_simulate_mixture_data_reproducible_for_fixed_seed():
     assert second.result == RESULTS.successful
     first_arrays = first.value
     second_arrays = second.value
-    assert bool(jnp.array_equal(first_arrays.row_id, second_arrays.row_id))
-    assert bool(jnp.array_equal(first_arrays.af, second_arrays.af))
-    assert bool(jnp.array_equal(first_arrays.component, second_arrays.component))
-    assert bool(jnp.array_equal(first_arrays.sigma2, second_arrays.sigma2))
-    assert bool(jnp.array_equal(first_arrays.beta_true, second_arrays.beta_true))
-    assert bool(jnp.array_equal(first_arrays.se, second_arrays.se))
-    assert bool(jnp.array_equal(first_arrays.beta_hat, second_arrays.beta_hat))
+    assert np.array_equal(first_arrays.row_id, second_arrays.row_id)
+    assert np.array_equal(first_arrays.af, second_arrays.af)
+    assert np.array_equal(first_arrays.component, second_arrays.component)
+    assert np.array_equal(first_arrays.sigma2, second_arrays.sigma2)
+    assert np.array_equal(first_arrays.beta_true, second_arrays.beta_true)
+    assert np.array_equal(first_arrays.se, second_arrays.se)
+    assert np.array_equal(first_arrays.beta_hat, second_arrays.beta_hat)
 
 
 def test_variance_link_outputs_positive_finite_sigma2_for_all_links():
@@ -89,8 +89,8 @@ def test_variance_link_outputs_positive_finite_sigma2_for_all_links():
 
         assert solution.result == RESULTS.successful
         sigma2 = solution.value.sigma2
-        assert bool(jnp.all(jnp.isfinite(sigma2)))
-        assert bool(jnp.all(sigma2 > 0.0))
+        assert bool(np.all(np.isfinite(sigma2)))
+        assert bool(np.all(sigma2 > 0.0))
 
 
 def test_component_index_respects_component_range():
@@ -99,5 +99,5 @@ def test_component_index_respects_component_range():
 
     assert solution.result == RESULTS.successful
     component = solution.value.component
-    assert bool(jnp.all(component >= 0))
-    assert bool(jnp.all(component < 3))
+    assert bool(np.all(component >= 0))
+    assert bool(np.all(component < 3))

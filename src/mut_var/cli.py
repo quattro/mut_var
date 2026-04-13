@@ -8,15 +8,12 @@ import sys
 from pathlib import Path
 from typing import Sequence, TextIO
 
-import jax
-
 from mut_var.curve import run_curve_pipeline
 from mut_var.infer import InferenceConfig, run_inference_pipeline
 from mut_var.io import read_sumstats
 from mut_var.numerics import SimulationNumericsConfig
 from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
 
-jax.config.update("jax_enable_x64", True)
 FMT = ap.ArgumentDefaultsHelpFormatter
 
 

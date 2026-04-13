@@ -1,158 +1,62 @@
 from __future__ import annotations
 
 # pattern: Functional Core
-from typing import Any, Callable, NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
-import equinox as eqx
-import jax
-import jax.numpy as jnp
-import jax.random as rdm
-import optimistix as optx
+import numpy as np
 
-from jax.scipy.special import logsumexp, xlogy
-from jax.scipy.stats import norm
-from jaxtyping import Array, ArrayLike
+from scipy.stats import norm as scipy_norm
 
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
-from mut_var.numerics._solver_utils import (
-    exponential_map_simplex,
-    is_nonfinite,
-    simplex_tangent_direction,
-)
+from mut_var.solver import mix_sqp
 
 
 class Params(NamedTuple):
-    pi: Array
-    mu_k: Array
-    var_k: Array
+    pi: np.ndarray
+    mu_k: np.ndarray
+    var_k: np.ndarray
 
 
 class BaselineConfig(NamedTuple):
     num_clusters: int
     max_iter: int = 100
     tol: float = 1e-3
+    # step_size kept for API compatibility; not used by mix-SQP.
     step_size: float = 0.01
 
 
-def _logpdf(beta_hat, s2, mean, var_k):
-    return norm.logpdf(beta_hat, loc=mean, scale=jnp.sqrt(s2 + var_k))
+def _build_likelihood_matrix(
+    beta_hat: np.ndarray,
+    s2: np.ndarray,
+    mu_k: np.ndarray,
+    var_k: np.ndarray,
+) -> np.ndarray:
+    """Build ``(n, K)`` likelihood matrix for a zero-mean normal mixture.
 
-
-def _pdf(beta_hat, s2, mean, var_k):
-    return norm.pdf(beta_hat, loc=mean, scale=jnp.sqrt(s2 + var_k))
-
-
-logpdf = jax.vmap(_logpdf, (None, None, 0, 0), 1)
-pdf = jax.vmap(_pdf, (None, None, 0, 0), 1)
-
-
-def baseline_objective(
-    param: Params,
-    beta_hat: ArrayLike,
-    s2: ArrayLike,
-    alpha: ArrayLike,
-):
-    r"""Evaluate the baseline penalized log-likelihood objective.
-
-    **Arguments:**
-
-    - `param`: Current mixture parameters.
-    - `beta_hat`: Observed effect-size estimates.
-    - `s2`: Observation variances.
-    - `alpha`: Dirichlet prior concentration vector for mixture weights.
-
-    **Returns:**
-
-    - Scalar objective value to maximize.
+    Column 0 is the null component ``N(beta; 0, s2[j])``.
+    Column ``k > 0`` is ``N(beta; 0, s2[j] + var_k[k-1])``.
     """
-    log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
-    pi = param.pi
-    log_likelihood = jnp.sum(
-        jnp.log(pdf(beta_hat, s2, param.mu_k, param.var_k) @ pi[1:] + _pdf(beta_hat, s2, 0.0, 0.0) * pi[0])
-    )
-    return log_likelihood - log_penalty
+    n = len(beta_hat)
+    K = len(var_k) + 1
+    L = np.empty((n, K), dtype=float)
+    # Null component: variance = s2 (pure noise, zero effect).
+    L[:, 0] = scipy_norm.pdf(beta_hat, loc=0.0, scale=np.sqrt(s2))
+    for k in range(1, K):
+        L[:, k] = scipy_norm.pdf(beta_hat, loc=float(mu_k[k - 1]), scale=np.sqrt(s2 + var_k[k - 1]))
+    return L
 
 
-def baseline_objective_lse(
-    param: Params,
-    beta_hat: ArrayLike,
-    s2: ArrayLike,
-    alpha: ArrayLike,
-):
-    r"""Numerically stable baseline objective variant using log-sum-exp."""
-    log_penalty = jnp.sum(xlogy(alpha - 1, param.pi))
-    pi = param.pi
-    log_likes = jnp.concatenate(
-        (
-            _logpdf(beta_hat, s2, 0.0, 0.0)[:, jnp.newaxis],
-            logpdf(beta_hat, s2, param.mu_k, param.var_k),
-        ),
-        axis=1,
-    )
-    lse = logsumexp(log_likes, axis=1, b=pi)
-    log_likelihood = jnp.sum(lse)
-    return log_likelihood - log_penalty
-
-
-def _fix_var(var):
-    eps = jnp.finfo(float).eps
-    inf = ~jnp.isfinite(var)
-    zs = var == 0.0
-    return jnp.where(jnp.logical_or(inf, zs), eps, var)
-
-
-def _exponential_map_normal(
-    mu0: Array,
-    v0: Array,
-    mu_direction: Array,
-    v_direction: Array,
-    step_size: float,
-) -> tuple[Array, Array]:
-    std_dev = jnp.sqrt(v0)
-    theta = jnp.arctan2(v_direction / jnp.sqrt(2.0), mu_direction / std_dev)
-
-    a = step_size / jnp.sqrt(2.0)
-    tanh_a = jnp.tanh(a)
-    denom = 1.0 - jnp.sin(theta) * tanh_a
-
-    mu_step = jnp.sqrt(2.0) * std_dev * jnp.cos(theta) * tanh_a / denom
-    mu = jnp.where(jnp.isnan(mu_step), mu0, mu0 + mu_step)
-
-    denom_sq = jnp.square(jnp.cosh(a) * denom)
-    v = _fix_var(v0 / denom_sq)
-
-    return mu, v
-
-
-def _riemannian_step(
-    params: Params,
-    direction: Params,
-    step_size: float,
-) -> Params:
-    tangent_pi = simplex_tangent_direction(params.pi, direction.pi)
-    pi = exponential_map_simplex(params.pi, tangent_pi, step_size)
-
-    tangent_var_k = 2 * direction.var_k * params.var_k**2
-    tangent_mu_k = direction.mu_k * params.var_k
-    mu_k, var_k = _exponential_map_normal(
-        params.mu_k,
-        params.var_k,
-        tangent_mu_k,
-        tangent_var_k,
-        step_size,
-    )
-
-    return Params(pi, mu_k, var_k)
-
-
-def _validate_inputs(beta_hat: ArrayLike, s2: ArrayLike, config: BaselineConfig) -> Solution | None:
+def _validate_inputs(
+    beta_hat: Any,
+    s2: Any,
+    config: BaselineConfig,
+) -> Solution | None:
     if hasattr(beta_hat, "columns") or hasattr(s2, "columns"):
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
             stats={"reason": "baseline kernel expects arrays, not tabular objects"},
-            state=None,
         )
 
     if config.num_clusters < 2:
@@ -160,18 +64,16 @@ def _validate_inputs(beta_hat: ArrayLike, s2: ArrayLike, config: BaselineConfig)
             value=None,
             result=RESULTS.invalid_input,
             stats={"reason": "num_clusters must be >= 2"},
-            state=None,
         )
 
     try:
-        beta_hat_arr = jnp.asarray(beta_hat)
-        s2_arr = jnp.asarray(s2)
+        beta_hat_arr = np.asarray(beta_hat, dtype=float)
+        s2_arr = np.asarray(s2, dtype=float)
     except Exception as exc:
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
             stats={"reason": f"failed to convert inputs to arrays: {exc}"},
-            state=None,
         )
 
     if beta_hat_arr.ndim != 1 or s2_arr.ndim != 1 or beta_hat_arr.shape[0] != s2_arr.shape[0]:
@@ -179,46 +81,51 @@ def _validate_inputs(beta_hat: ArrayLike, s2: ArrayLike, config: BaselineConfig)
             value=None,
             result=RESULTS.invalid_input,
             stats={"reason": "beta_hat and s2 must be 1D arrays of equal length"},
-            state=None,
         )
 
     if beta_hat_arr.shape[0] == 0:
-        return Solution(value=None, result=RESULTS.empty_subset, stats={"reason": "no variants available"}, state=None)
+        return Solution(
+            value=None,
+            result=RESULTS.empty_subset,
+            stats={"reason": "no variants available"},
+        )
 
-    if not bool(jnp.isfinite(beta_hat_arr).all()) or not bool(jnp.isfinite(s2_arr).all()):
+    if not np.isfinite(beta_hat_arr).all() or not np.isfinite(s2_arr).all():
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
             stats={"reason": "inputs contain non-finite values"},
-            state=None,
         )
 
-    if bool((s2_arr <= 0.0).any()):
+    if (s2_arr <= 0.0).any():
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
             stats={"reason": "s2 must be strictly positive"},
-            state=None,
         )
 
     return None
 
 
 def fit_baseline(
-    beta_hat: ArrayLike,
-    s2: ArrayLike,
-    key: rdm.PRNGKey,
+    beta_hat: Any,
+    s2: Any,
     config: BaselineConfig,
     verbose: bool | Callable[..., None] = False,
 ) -> Solution:
-    r"""Fit baseline mixture parameters with Optimistix full-batch descent.
+    r"""Fit baseline mixture weights via mix-SQP on a fixed variance grid.
+
+    Component means are zero; variances are fixed on a log-spaced grid
+    derived from the data range.  Only the mixture weights ``pi`` are
+    optimised using the mix-SQP algorithm.
 
     **Arguments:**
 
     - `beta_hat`: 1D effect-size estimates.
-    - `s2`: 1D positive variances aligned with `beta_hat`.
-    - `key`: JAX PRNG key used for simplex initialization.
+    - `s2`: 1D positive observation variances aligned with `beta_hat`.
     - `config`: Baseline solver controls.
+    - `verbose`: ``False`` for silent; ``True`` prints each SQP step;
+      a callable receives ``(step, obj)`` keyword arguments.
 
     **Returns:**
 
@@ -228,105 +135,69 @@ def fit_baseline(
 
     - `RESULTS.invalid_input` for shape/domain violations.
     - `RESULTS.empty_subset` for empty arrays.
-    - `RESULTS.nonfinite_objective` when objective evaluation is non-finite.
-    - `RESULTS.max_steps_reached` when convergence tolerance is not met.
+    - `RESULTS.nonfinite_objective` when the likelihood matrix is non-finite.
+    - `RESULTS.max_steps_reached` when mix-SQP does not converge in `max_iter`.
     """
     invalid = _validate_inputs(beta_hat, s2, config)
     if invalid is not None:
         return invalid
 
-    beta_hat_arr = jnp.asarray(beta_hat)
-    s2_arr = jnp.asarray(s2)
+    beta_hat_arr = np.asarray(beta_hat, dtype=float)
+    s2_arr = np.asarray(s2, dtype=float)
 
-    alpha = jnp.array([10.0] + (config.num_clusters - 1) * [1.0])
-    std_err = jnp.sqrt(s2_arr)
-    min_val = jnp.min(std_err) / 10
-    max_val = jnp.max(beta_hat_arr**2 - s2_arr)
-    if max_val < 0.0:
-        max_val = 8 * min_val
+    # Build log-spaced variance grid for the K-1 non-null components.
+    std_err = np.sqrt(s2_arr)
+    min_val = float(np.min(std_err)) / 10.0
+    max_candidate = float(np.max(beta_hat_arr**2 - s2_arr))
+    if max_candidate <= 0.0 or not np.isfinite(max_candidate):
+        max_val = 8.0 * min_val
     else:
-        max_val = 2 * jnp.sqrt(max_val)
+        max_val = 2.0 * np.sqrt(max_candidate)
+    if not np.isfinite(max_val) or max_val <= 0.0:
+        max_val = 8.0 * min_val
 
-    if is_nonfinite(max_val) or bool(max_val <= 0.0):
-        max_val = 8 * min_val
+    var_k = np.exp(np.linspace(np.log(min_val), np.log(max_val), config.num_clusters - 1)) ** 2
+    mu_k = np.zeros(config.num_clusters - 1)
 
-    params = Params(
-        pi=rdm.dirichlet(key, alpha),
-        mu_k=jnp.zeros(config.num_clusters - 1),
-        var_k=jnp.exp(jnp.linspace(jnp.log(min_val), jnp.log(max_val), config.num_clusters - 1)) ** 2,
-    )
+    L = _build_likelihood_matrix(beta_hat_arr, s2_arr, mu_k, var_k)
 
-    obj = eqx.filter_jit(baseline_objective)
-    nobs = len(beta_hat_arr)
-    return _fit_baseline_optimistix(
-        init=params,
-        beta_hat=beta_hat_arr,
-        s2=s2_arr,
-        alpha=alpha,
-        objective=obj,
-        nobs=nobs,
-        config=config,
-        verbose=verbose,
-    )
-
-
-def _fit_baseline_optimistix(
-    *,
-    init: Params,
-    beta_hat: ArrayLike,
-    s2: ArrayLike,
-    alpha: ArrayLike,
-    objective,
-    nobs: int,
-    config: BaselineConfig,
-    verbose: bool | Callable[..., None] = False,
-) -> Solution:
-    def _propose_candidate(params_now: Params, direction: Params, step_size: ArrayLike) -> Params:
-        tangent_pi = simplex_tangent_direction(params_now.pi, direction.pi)
-        pi = exponential_map_simplex(params_now.pi, tangent_pi, step_size)
-        return Params(pi, params_now.mu_k, params_now.var_k)
-
-    def _neg_objective(params_now: Params, _unused: Any) -> ArrayLike:
-        return -objective(params_now, beta_hat, s2, alpha)
-
-    solver = MutVarSolver(
-        step_update=_propose_candidate,
-        step_size=config.step_size,
-        rtol=config.tol,
-        atol=config.tol,
-        verbose=verbose,
-    )
-    optx_solution = optx.minimise(
-        fn=_neg_objective,
-        solver=solver,
-        y0=init,
-        args=None,
-        max_steps=config.max_iter,
-        throw=False,
-    )
-
-    objective_value = objective(optx_solution.value, beta_hat, s2, alpha)
-    if is_nonfinite(objective_value):
+    if not np.isfinite(L).all():
         return Solution(
-            value=optx_solution.value,
+            value=None,
             result=RESULTS.nonfinite_objective,
-            stats={
-                "epoch": int(optx_solution.stats.get("num_steps", 0)),
-                "objective": float(objective_value),
-            },
-            state=None,
+            stats={"reason": "likelihood matrix contains non-finite values"},
         )
 
-    mapped_result = map_optimistix_result(optx_solution.result)
+    # Replace any zero rows (all-zero likelihoods) with a tiny floor so the
+    # log-objective remains defined.  This can happen for extreme beta values.
+    row_sums = L.sum(axis=1)
+    zero_rows = row_sums == 0.0
+    if zero_rows.any():
+        L[zero_rows, :] = np.finfo(float).tiny
+
+    try:
+        pi, info = mix_sqp(
+            L,
+            max_iter=config.max_iter,
+            tol=config.tol,
+            verbose=verbose,
+        )
+    except Exception as exc:
+        return Solution(
+            value=None,
+            result=RESULTS.nonfinite_objective,
+            stats={"reason": f"mix-SQP failed: {exc}"},
+        )
+
+    result = RESULTS.successful if info["converged"] else RESULTS.max_steps_reached
     return Solution(
-        value=optx_solution.value,
-        result=mapped_result,
+        value=Params(pi=pi, mu_k=mu_k, var_k=var_k),
+        result=result,
         stats={
-            "epoch_count": int(optx_solution.stats.get("num_steps", 0)),
-            "objective": float(objective_value),
-            "converged": mapped_result == RESULTS.successful,
-            "num_observations": int(nobs),
+            "epoch_count": info["n_iter"],
+            "objective": info["objective"],
+            "converged": info["converged"],
+            "num_observations": int(len(beta_hat_arr)),
             "used_full_batch_objective": True,
         },
-        state=None,
     )

@@ -1,6 +1,7 @@
+import enum
+
 from dataclasses import FrozenInstanceError
 
-import equinox.internal as eqxi
 import pytest
 
 from mut_var.contracts import RESULTS, Solution
@@ -14,12 +15,11 @@ def test_contracts_enum_values_are_stable():
         "nonfinite_objective",
         "max_steps_reached",
     }
-    assert expected == set(RESULTS._name_to_item.keys())
-    assert expected == set(RESULTS._index_to_message)
+    assert expected == set(e.name for e in RESULTS)
 
 
-def test_results_uses_equinox_enumeration():
-    assert issubclass(RESULTS, eqxi.Enumeration)
+def test_results_is_stdlib_enum():
+    assert issubclass(RESULTS, enum.Enum)
 
 
 def test_solution_preserves_status_and_diagnostics():
