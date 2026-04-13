@@ -281,11 +281,16 @@ def _fit_baseline_optimistix(
     config: BaselineConfig,
     verbose: bool | Callable[..., None] = False,
 ) -> Solution:
+    def _propose_candidate(params_now: Params, direction: Params, step_size: ArrayLike) -> Params:
+        tangent_pi = simplex_tangent_direction(params_now.pi, direction.pi)
+        pi = exponential_map_simplex(params_now.pi, tangent_pi, step_size)
+        return Params(pi, params_now.mu_k, params_now.var_k)
+
     def _neg_objective(params_now: Params, _unused: Any) -> ArrayLike:
         return -objective(params_now, beta_hat, s2, alpha)
 
     solver = MutVarSolver(
-        step_update=_riemannian_step,
+        step_update=_propose_candidate,
         step_size=config.step_size,
         rtol=config.tol,
         atol=config.tol,
