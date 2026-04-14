@@ -5,28 +5,25 @@ import pytest
 
 import mut_var
 
+from mut_var.config import SimulationConfig
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics import SimulationNumericsConfig
 from mut_var.pipelines import (
     run_simulation_pipeline,
     SimulationArtifacts,
-    SimulationPipelineConfig,
 )
 
 
-def _pipeline_config(n_rows: int = 200) -> SimulationPipelineConfig:
-    return SimulationPipelineConfig(
+def _pipeline_config(n_rows: int = 200) -> SimulationConfig:
+    return SimulationConfig(
         n_rows=n_rows,
         seed=0,
-        numerics=SimulationNumericsConfig(
-            weights=(0.9, 0.1),
-            log_var_scales=(-8.0, -5.5),
-            variance_link="maf_power",
-            theta=0.5,
-            se_model="af_n_scaled",
-            sample_size=50000.0,
-            se_scale=1.0,
-        ),
+        weights=(0.9, 0.1),
+        log_var_scales=(-8.0, -5.5),
+        variance_link="maf_power",
+        theta=0.5,
+        se_model="af_n_scaled",
+        sample_size=50000.0,
+        se_scale=1.0,
     )
 
 
@@ -75,7 +72,7 @@ def test_metadata_contains_expected_decile_rows():
 
 
 def test_pipeline_raises_value_error_for_invalid_input_status(monkeypatch):
-    def _bad_numerics(*, n_rows, seed, config):  # noqa: ARG001
+    def _bad_numerics(*, config):  # noqa: ARG001
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
@@ -90,7 +87,7 @@ def test_pipeline_raises_value_error_for_invalid_input_status(monkeypatch):
 
 
 def test_pipeline_raises_runtime_error_for_nonrecoverable_status(monkeypatch):
-    def _bad_numerics(*, n_rows, seed, config):  # noqa: ARG001
+    def _bad_numerics(*, config):  # noqa: ARG001
         return Solution(
             value=None,
             result=RESULTS.nonfinite_objective,

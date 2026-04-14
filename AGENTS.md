@@ -10,12 +10,13 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - CLI entrypoint: `mutvar` (`infer`, `curve`, `simulate`)
   - Package-root pipeline APIs: `run_inference_pipeline`, `run_curve_pipeline`, `run_simulation_pipeline`
   - Numerics APIs: `mut_var.numerics.fit_baseline`, `mut_var.numerics.fit_curve`, `mut_var.numerics.fit_refit_grid`, `mut_var.numerics.simulate_mixture_data`
-  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.pipelines.InferenceArrays`, `mut_var.pipelines.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.numerics.SimulationNumericsConfig`, `mut_var.SimulationPipelineConfig`, `mut_var.SimulationArtifacts`
+  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.pipelines.InferenceArrays`, `mut_var.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.SimulationConfig`, `mut_var.SimulationArtifacts`
 - **Guarantees**:
   - Boundary validation happens at ingress before numerics execute.
-  - Pipeline/orchestration APIs accept validated dataframe or array-like inputs and return dataframe outputs for downstream writing/processing.
+  - Inference pipeline/orchestration APIs accept path-based ingress plus explicit column overrides and return dataframe outputs for downstream writing/processing.
   - Numerics APIs return `Solution` objects and use `Solution.result` as the canonical status signal.
   - Contracts above numerics do not expose `Solution`; they normalize outputs to tabular/dataframe forms.
+  - Inference numerics prepare a shared likelihood matrix once, then reuse that state across baseline and refit.
   - Simulation pipeline APIs return dataframe artifacts (`truth`, `observed`, `metadata`) and keep file writes in CLI/orchestration shells.
   - Baseline/refit numerics use mix-SQP with full-batch objective updates only.
   - Numerics hot path is Cython-compiled (`_core.pyx`) with BLAS acceleration.
@@ -51,7 +52,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `RESULTS` status codes are explicit and stable (`successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, `max_steps_reached`).
 - `Solution` carries `value`, `result`, and optional `stats`/`state`.
 - Data-structure rule: data-only contracts use `NamedTuple`; behavior-bearing contracts use `@dataclass(frozen=True)`.
-- `BaselineConfig` and `InferenceConfig` no longer include a `batch_size` field.
+- `InferenceConfig` no longer includes a `batch_size` field.
 - Canonical quality gates remain aligned between local and CI:
   - `ruff check src/mut_var tests`
   - `mypy src/mut_var tests`
@@ -87,7 +88,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 
 ## Gotchas
 - Importing internals from `mut_var.cli` is unsupported; use package-root APIs.
-- Pipeline contract types such as `InferenceConfig` and `InferenceArrays` live under `mut_var.pipelines`, not `mut_var.numerics`.
+- Public workflow config types live at package root (`mut_var.InferenceConfig`, `mut_var.SimulationConfig`); `InferenceArrays` remains under `mut_var.pipelines`.
 - Treat `Solution.result` (not presence of `value`) as the success signal for numerics APIs.
 - `mutvar infer` no longer accepts `--batch-size`; numerics are full-batch by contract.
 - `mutvar simulate` writes three files (`.truth.tsv`, `.observed.tsv`, `.meta.tsv`) and does not stream tabular output to stdout.

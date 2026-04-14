@@ -8,14 +8,11 @@ import sys
 from pathlib import Path
 from typing import Sequence, TextIO
 
-from mut_var.io import read_sumstats
-from mut_var.numerics import SimulationNumericsConfig
+from mut_var.config import InferenceConfig, SimulationConfig
 from mut_var.pipelines import (
-    InferenceConfig,
     run_curve_pipeline,
     run_inference_pipeline,
     run_simulation_pipeline,
-    SimulationPipelineConfig,
 )
 
 FMT = ap.ArgumentDefaultsHelpFormatter
@@ -326,12 +323,9 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     """
     try:
         log.info("infer: loading data from '%s'", args.sumstats)
-        df = read_sumstats(args.sumstats)
-        log.info("infer: data loaded (%d rows)", df.height)
-
         log.info("infer: starting inference pipeline")
         result_df = run_inference_pipeline(
-            df,
+            args.sumstats,
             af_col=args.af_col,
             beta_col=args.beta_col,
             se_col=args.se_col,
@@ -419,7 +413,9 @@ def run_simulate_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
         weights = _parse_comma_floats(args.weights, "weights")
         log_var_scales = _parse_comma_floats(args.log_var_scales, "log_var_scales")
 
-        numerics_config = SimulationNumericsConfig(
+        simulation_config = SimulationConfig(
+            n_rows=args.n_rows,
+            seed=args.seed,
             weights=weights,
             log_var_scales=log_var_scales,
             variance_link=args.variance_link,
@@ -437,14 +433,9 @@ def run_simulate_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             sample_size=args.sample_size,
             se_scale=args.se_scale,
         )
-        pipeline_config = SimulationPipelineConfig(
-            n_rows=args.n_rows,
-            seed=args.seed,
-            numerics=numerics_config,
-        )
 
         log.info("simulate: running pipeline")
-        artifacts = run_simulation_pipeline(config=pipeline_config, log=log)
+        artifacts = run_simulation_pipeline(config=simulation_config, log=log)
 
         log.info("simulate: writing outputs")
         truth_path = output_dir / f"{output_prefix}.truth.tsv"

@@ -159,17 +159,14 @@ This produces:
 Python API example:
 
 ```python
-from mut_var import run_simulation_pipeline, SimulationPipelineConfig
-from mut_var.numerics import SimulationNumericsConfig
+from mut_var import run_simulation_pipeline, SimulationConfig
 
 artifacts = run_simulation_pipeline(
-    config=SimulationPipelineConfig(
+    config=SimulationConfig(
         n_rows=1000,
         seed=0,
-        numerics=SimulationNumericsConfig(
-            weights=(0.95, 0.05),
-            log_var_scales=(-8.0, -5.5),
-        ),
+        weights=(0.95, 0.05),
+        log_var_scales=(-8.0, -5.5),
     )
 )
 

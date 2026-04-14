@@ -38,6 +38,38 @@ def read_sumstats(path: str) -> pl.DataFrame:
         raise ValueError(f"could not read summary statistics file '{path}': expected a tab-delimited file.") from exc
 
 
+def load_inference_arrays(
+    path: str,
+    af_col: str,
+    beta_col: str,
+    se_col: str,
+) -> InferenceArrays:
+    r"""Load, validate, and convert summary statistics into inference arrays.
+
+    **Arguments:**
+
+    - `path`: Input TSV path.
+    - `af_col`: AF column name.
+    - `beta_col`: Effect-size column name.
+    - `se_col`: Standard-error column name.
+
+    **Returns:**
+
+    - `InferenceArrays` ready for numerics/pipeline use.
+
+    **Raises:**
+
+    - `FileNotFoundError`: Path does not exist.
+    - `ValueError`: File contents or schema/domain validation fails.
+    """
+    df = read_sumstats(path)
+    validate_required_columns(df, af_col, beta_col, se_col)
+    validate_numeric_columns(df, af_col, beta_col, se_col)
+    validate_sumstats_domain(df, af_col, se_col)
+    selected = df.select([af_col, beta_col, se_col])
+    return to_inference_arrays(selected, af_col, beta_col, se_col)
+
+
 def validate_required_columns(
     df: pl.DataFrame,
     af_col: str,
@@ -176,3 +208,17 @@ def payload_to_long_dataframe(payload: dict[str, object] | Any) -> pl.DataFrame:
             columns[name] = np.asarray(values).tolist()
     df = pl.DataFrame(columns)
     return df.select(["mu0", "var0", "maf", "name", "value"])
+
+
+__all__ = [
+    "build_maf_masks",
+    "dataframe_fingerprint",
+    "load_inference_arrays",
+    "payload_to_long_dataframe",
+    "read_sumstats",
+    "to_inference_arrays",
+    "validate_maf_grid",
+    "validate_numeric_columns",
+    "validate_required_columns",
+    "validate_sumstats_domain",
+]

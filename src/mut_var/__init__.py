@@ -5,12 +5,12 @@
 
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
+from .config import InferenceConfig, SimulationConfig
 from .pipelines import (
     run_curve_pipeline,
     run_inference_pipeline,
     run_simulation_pipeline,
     SimulationArtifacts,
-    SimulationPipelineConfig,
 )
 
 try:
@@ -27,6 +27,7 @@ __all__ = [
     "run_curve_pipeline",
     "run_inference_pipeline",
     "run_simulation_pipeline",
-    "SimulationPipelineConfig",
+    "InferenceConfig",
+    "SimulationConfig",
     "SimulationArtifacts",
 ]

@@ -6,9 +6,10 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
+from mut_var.config import SimulationConfig
 from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import simulate_mixture_data, SimulationArrays
-from mut_var.pipelines.types import SimulationArtifacts, SimulationPipelineConfig
+from mut_var.pipelines.types import SimulationArtifacts
 
 
 def _to_numpy(values: jnp.ndarray | object, dtype: np.dtype) -> np.ndarray:
@@ -61,7 +62,7 @@ def _observed_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
     )
 
 
-def _metadata_dataframe(arrays: SimulationArrays, config: SimulationPipelineConfig) -> pl.DataFrame:
+def _metadata_dataframe(arrays: SimulationArrays, config: SimulationConfig) -> pl.DataFrame:
     truth_df = _truth_dataframe(arrays)
     with_deciles = truth_df.with_columns(
         (
@@ -86,9 +87,9 @@ def _metadata_dataframe(arrays: SimulationArrays, config: SimulationPipelineConf
         [
             pl.lit(int(config.seed)).alias("seed"),
             pl.lit(int(config.n_rows)).alias("n_rows"),
-            pl.lit(int(len(config.numerics.weights))).alias("num_components"),
-            pl.lit(str(config.numerics.variance_link)).alias("variance_link"),
-            pl.lit(float(config.numerics.theta)).alias("theta"),
+            pl.lit(int(len(config.weights))).alias("num_components"),
+            pl.lit(str(config.variance_link)).alias("variance_link"),
+            pl.lit(float(config.theta)).alias("theta"),
         ]
     ).select(
         [
@@ -106,7 +107,7 @@ def _metadata_dataframe(arrays: SimulationArrays, config: SimulationPipelineConf
 
 def run_simulation_pipeline(
     *,
-    config: SimulationPipelineConfig,
+    config: SimulationConfig,
     log: logging.Logger | None = None,
 ) -> SimulationArtifacts:
     r"""Run simulation numerics and prepare tabular truth/observed/metadata artifacts.
@@ -129,11 +130,7 @@ def run_simulation_pipeline(
     workflow_log.info("simulation pipeline: validating config")
 
     workflow_log.info("simulation pipeline: running numerics")
-    solution = simulate_mixture_data(
-        n_rows=config.n_rows,
-        seed=config.seed,
-        config=config.numerics,
-    )
+    solution = simulate_mixture_data(config=config)
 
     if solution.result != RESULTS.successful:
         reason = _pipeline_reason(solution)

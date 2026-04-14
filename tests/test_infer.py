@@ -9,20 +9,19 @@ import mut_var
 import mut_var.cli as cli
 import mut_var.numerics as numerics
 
+from mut_var.config import InferenceConfig, SimulationConfig
 from mut_var.contracts import RESULTS, Solution
 from mut_var.io import to_inference_arrays
-from mut_var.numerics import SimulationNumericsConfig
 from mut_var.pipelines import (
-    InferenceConfig,
     run_inference_pipeline as run_inference_dataframe_pipeline,
     run_simulation_pipeline,
-    SimulationPipelineConfig,
 )
 
 
 def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
+    path = "tests/fixtures/sumstats_valid.tsv"
     result_df = run_inference_dataframe_pipeline(
-        sumstats_valid_df,
+        path,
         seed=0,
         lowest=1e-3,
         highest=5e-3,
@@ -39,7 +38,7 @@ def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
     caplog.set_level(logging.INFO, logger="mut_var.pipelines.inference")
 
     run_inference_dataframe_pipeline(
-        sumstats_valid_df,
+        "tests/fixtures/sumstats_valid.tsv",
         seed=0,
         lowest=1e-3,
         highest=5e-3,
@@ -57,7 +56,7 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, ca
     caplog.set_level(logging.DEBUG, logger="mut_var.pipelines.inference")
 
     run_inference_dataframe_pipeline(
-        sumstats_valid_df,
+        "tests/fixtures/sumstats_valid.tsv",
         seed=0,
         lowest=1e-3,
         highest=5e-3,
@@ -71,10 +70,10 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, ca
 
 
 def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_df, monkeypatch):
-    import mut_var.numerics.baseline as baseline_module
+    import mut_var.numerics.mixture_fit as mixture_fit_module
 
     monkeypatch.setattr(
-        baseline_module,
+        mixture_fit_module,
         "fit_baseline",
         lambda **_kwargs: Solution(
             value=None,
@@ -86,7 +85,7 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
 
     with pytest.raises(RuntimeError) as err:
         run_inference_dataframe_pipeline(
-            sumstats_valid_df,
+            "tests/fixtures/sumstats_valid.tsv",
             seed=0,
             lowest=1e-3,
             highest=5e-3,
@@ -98,17 +97,30 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
 
 
 def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df, monkeypatch):
-    import mut_var.numerics.baseline as baseline_module
-    import mut_var.numerics.refit as refit_module
+    import mut_var.numerics.mixture_fit as mixture_fit_module
 
-    baseline_params = baseline_module.Params(
+    baseline_params = mixture_fit_module.Params(
         pi=np.asarray([1.0], dtype=float),
         mu_k=np.asarray([], dtype=float),
         var_k=np.asarray([], dtype=float),
     )
+    fit_state = mixture_fit_module.FitState(
+        likelihood_matrix=np.ones((4, 1), dtype=float),
+        initial_params=baseline_params,
+    )
 
     monkeypatch.setattr(
-        baseline_module,
+        mixture_fit_module,
+        "prepare_fit_state",
+        lambda **_kwargs: Solution(
+            value=fit_state,
+            result=RESULTS.successful,
+            stats={},
+            state=None,
+        ),
+    )
+    monkeypatch.setattr(
+        mixture_fit_module,
         "fit_baseline",
         lambda **_kwargs: Solution(
             value=baseline_params,
@@ -118,8 +130,8 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df,
         ),
     )
     monkeypatch.setattr(
-        refit_module,
-        "fit_refit_grid",
+        mixture_fit_module,
+        "fit_refit_step",
         lambda **_kwargs: Solution(
             value=None,
             result=RESULTS.empty_subset,
@@ -130,7 +142,7 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df,
 
     with pytest.raises(ValueError) as err:
         run_inference_dataframe_pipeline(
-            sumstats_valid_df,
+            "tests/fixtures/sumstats_valid.tsv",
             seed=0,
             lowest=1e-3,
             highest=5e-3,
@@ -152,6 +164,21 @@ def test_adapters_convert_to_arrays(sumstats_valid_df):
     assert not hasattr(arrays.beta_hat, "columns")
 
 
+def test_run_inference_pipeline_accepts_path_input():
+    result_df = run_inference_dataframe_pipeline(
+        "tests/fixtures/sumstats_valid.tsv",
+        seed=0,
+        lowest=1e-3,
+        highest=5e-3,
+        num_breaks=2,
+        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+    )
+
+    assert isinstance(result_df, pl.DataFrame)
+    assert result_df.height > 0
+    assert result_df.columns == ["mu0", "var0", "maf", "name", "value"]
+
+
 def test_package_root_exports_canonical_pipeline_entrypoints():
     assert callable(mut_var.run_inference_pipeline)
     assert callable(mut_var.run_curve_pipeline)
@@ -166,27 +193,40 @@ def test_numerics_public_surface_does_not_export_profiling_helpers():
 
 
 def test_numerics_module_owns_numerics_entrypoint():
-    import mut_var.pipelines.types as pipeline_types
+    import mut_var.config as config_module
 
     assert importlib.util.find_spec("mut_var.numerics.pipeline") is None
-    assert pipeline_types.InferenceConfig is InferenceConfig
+    assert config_module.InferenceConfig is InferenceConfig
     assert not hasattr(numerics, "InferenceArrays")
     assert not hasattr(numerics, "InferenceConfig")
     assert not hasattr(numerics, "run_inference_pipeline")
 
 
-def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeypatch):
-    import mut_var.numerics.baseline as baseline_module
-    import mut_var.numerics.refit as refit_module
+def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeypatch, tmp_path):
+    import mut_var.numerics.mixture_fit as mixture_fit_module
 
-    baseline_params = baseline_module.Params(
+    baseline_params = mixture_fit_module.Params(
         pi=np.asarray([0.9, 0.1], dtype=float),
         mu_k=np.asarray([0.0], dtype=float),
         var_k=np.asarray([1e-4], dtype=float),
     )
+    fit_state = mixture_fit_module.FitState(
+        likelihood_matrix=np.ones((128, 2), dtype=float),
+        initial_params=baseline_params,
+    )
 
     monkeypatch.setattr(
-        baseline_module,
+        mixture_fit_module,
+        "prepare_fit_state",
+        lambda **_kwargs: Solution(
+            value=fit_state,
+            result=RESULTS.successful,
+            stats={},
+            state=None,
+        ),
+    )
+    monkeypatch.setattr(
+        mixture_fit_module,
         "fit_baseline",
         lambda **_kwargs: Solution(
             value=baseline_params,
@@ -196,26 +236,29 @@ def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeyp
         ),
     )
     monkeypatch.setattr(
-        refit_module,
-        "fit_refit_grid",
+        mixture_fit_module,
+        "fit_refit_step",
         lambda **_kwargs: Solution(
-            value=[baseline_params, baseline_params, baseline_params],
+            value=baseline_params,
             result=RESULTS.successful,
-            stats={"num_models": 3},
+            stats={"epoch_count": 1},
             state=None,
         ),
     )
 
     artifacts = run_simulation_pipeline(
-        config=SimulationPipelineConfig(
+        config=SimulationConfig(
             n_rows=128,
             seed=0,
-            numerics=SimulationNumericsConfig(weights=(0.9, 0.1), log_var_scales=(-8.0, -5.5)),
+            weights=(0.9, 0.1),
+            log_var_scales=(-8.0, -5.5),
         )
     )
+    observed_path = tmp_path / "simulated_observed.tsv"
+    artifacts.observed.write_csv(observed_path, separator="\t")
 
     result_df = run_inference_dataframe_pipeline(
-        artifacts.observed,
+        str(observed_path),
         seed=0,
         lowest=1e-3,
         highest=5e-3,

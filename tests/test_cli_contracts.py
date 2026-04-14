@@ -5,7 +5,7 @@ from io import StringIO
 import polars as pl
 
 import mut_var.cli as cli
-import mut_var.numerics.baseline as baseline_module
+import mut_var.numerics.mixture_fit as mixture_fit_module
 
 from tests.helpers import assert_no_traceback, fixture_path
 
@@ -14,7 +14,7 @@ def _guard_numerics(monkeypatch):
     def _unexpected_call(*_args, **_kwargs):
         raise AssertionError("Numerics should not execute for boundary validation failures.")
 
-    monkeypatch.setattr(baseline_module, "fit_baseline", _unexpected_call)
+    monkeypatch.setattr(mixture_fit_module, "fit_baseline", _unexpected_call)
 
 
 def _write_sumstats(path, content: str) -> None:
@@ -124,11 +124,15 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     stdout, stderr = _patch_streams(monkeypatch)
     valid_path = tmp_path / "sumstats.tsv"
     valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
-
+    captured = {}
     monkeypatch.setattr(
         cli,
         "run_inference_pipeline",
-        lambda *_args, **_kwargs: pl.DataFrame(
+        lambda path, **kwargs: captured.setdefault(
+            "call",
+            (path, kwargs["af_col"], kwargs["beta_col"], kwargs["se_col"]),
+        )
+        and pl.DataFrame(
             {
                 "mu0": [0.0],
                 "var0": [0.1],
@@ -142,6 +146,7 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     code = cli.run_cli(["infer", str(valid_path)])
 
     assert code == 0
+    assert captured["call"] == (str(valid_path), "effect_allele_frequency", "beta", "standard_error")
     assert "mu0" in stdout.getvalue()
     err = stderr.getvalue()
     assert "infer: loading data" in err

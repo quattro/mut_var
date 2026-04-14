@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import numpy as np
 
+from mut_var.config import SimulationConfig
 from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics import simulate_mixture_data, SimulationNumericsConfig
+from mut_var.numerics import simulate_mixture_data
 
 
-def _valid_config(**overrides) -> SimulationNumericsConfig:
-    base = SimulationNumericsConfig(
+def _valid_config(**overrides) -> SimulationConfig:
+    base = SimulationConfig(
+        n_rows=256,
+        seed=0,
         weights=(0.9, 0.1),
         log_var_scales=(-8.0, -5.5),
         variance_link="maf_power",
@@ -24,11 +27,11 @@ def _valid_config(**overrides) -> SimulationNumericsConfig:
     )
     values = base._asdict()
     values.update(overrides)
-    return SimulationNumericsConfig(**values)
+    return SimulationConfig(**values)
 
 
 def test_simulate_mixture_data_returns_solution_and_arrays_on_valid_config():
-    solution = simulate_mixture_data(n_rows=256, seed=0, config=_valid_config())
+    solution = simulate_mixture_data(config=_valid_config(n_rows=256, seed=0))
 
     assert isinstance(solution, Solution)
     assert solution.result == RESULTS.successful
@@ -47,7 +50,7 @@ def test_simulate_mixture_data_returns_solution_and_arrays_on_valid_config():
 def test_simulate_mixture_data_rejects_invalid_weight_shapes():
     config = _valid_config(weights=(1.0,), log_var_scales=(-8.0,))
 
-    solution = simulate_mixture_data(n_rows=32, seed=0, config=config)
+    solution = simulate_mixture_data(config=config._replace(n_rows=32, seed=0))
 
     assert solution.result == RESULTS.invalid_input
     assert solution.stats is not None
@@ -57,7 +60,7 @@ def test_simulate_mixture_data_rejects_invalid_weight_shapes():
 def test_simulate_mixture_data_rejects_invalid_theta():
     config = _valid_config(theta=-0.1)
 
-    solution = simulate_mixture_data(n_rows=32, seed=0, config=config)
+    solution = simulate_mixture_data(config=config._replace(n_rows=32, seed=0))
 
     assert solution.result == RESULTS.invalid_input
     assert solution.stats is not None
@@ -66,8 +69,8 @@ def test_simulate_mixture_data_rejects_invalid_theta():
 
 def test_simulate_mixture_data_reproducible_for_fixed_seed():
     config = _valid_config()
-    first = simulate_mixture_data(n_rows=512, seed=123, config=config)
-    second = simulate_mixture_data(n_rows=512, seed=123, config=config)
+    first = simulate_mixture_data(config=config._replace(n_rows=512, seed=123))
+    second = simulate_mixture_data(config=config._replace(n_rows=512, seed=123))
 
     assert first.result == RESULTS.successful
     assert second.result == RESULTS.successful
@@ -85,7 +88,7 @@ def test_simulate_mixture_data_reproducible_for_fixed_seed():
 def test_variance_link_outputs_positive_finite_sigma2_for_all_links():
     for link in ("none", "maf_power", "maf_power_shifted"):
         config = _valid_config(variance_link=link, link_shift=1e-3 if link == "maf_power_shifted" else 0.0)
-        solution = simulate_mixture_data(n_rows=20000, seed=0, config=config)
+        solution = simulate_mixture_data(config=config._replace(n_rows=20000, seed=0))
 
         assert solution.result == RESULTS.successful
         sigma2 = solution.value.sigma2
@@ -95,7 +98,7 @@ def test_variance_link_outputs_positive_finite_sigma2_for_all_links():
 
 def test_component_index_respects_component_range():
     config = _valid_config(weights=(0.6, 0.3, 0.1), log_var_scales=(-8.0, -6.0, -4.0))
-    solution = simulate_mixture_data(n_rows=4096, seed=7, config=config)
+    solution = simulate_mixture_data(config=config._replace(n_rows=4096, seed=7))
 
     assert solution.result == RESULTS.successful
     component = solution.value.component

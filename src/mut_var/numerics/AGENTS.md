@@ -7,14 +7,17 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 
 ## Contracts
 - **Exposes**:
-  - `fit_baseline(beta_hat, s2, config, verbose=False) -> Solution`
-  - `fit_refit_grid(beta_hat, s2, maf_masks, init, config, verbose=False) -> Solution`
+  - `prepare_fit_state(beta_hat, s2, config) -> Solution`
+  - `fit_baseline(state, config, verbose=False) -> Solution`
+  - `fit_refit_step(L_sub, prev_params, config, verbose=False) -> Solution`
+  - `fit_refit_grid(L, maf_masks, init, config, verbose=False) -> Solution`
   - `fit_curve(maf, value) -> Solution`
-  - `simulate_mixture_data(n_rows, seed, config) -> Solution`
+  - `simulate_mixture_data(config) -> Solution`
 - **Guarantees**:
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths.
+  - `prepare_fit_state` validates array inputs once, constructs the fixed component grid, and materializes the shared likelihood matrix.
   - Baseline optimization uses mix-SQP on a fixed log-spaced variance grid (optimizes `pi` only).
-  - Refit grid optimization uses mix-SQP-ordered with bidiagonal ordering constraint `A π ≤ 0`.
+  - Refit optimization consumes precomputed likelihood matrices and uses mix-SQP-ordered with bidiagonal ordering constraint `A π ≤ 0`.
   - Optional `verbose` callable `(step, obj) -> None` emits per-step diagnostics.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.
   - `simulate_mixture_data` validates simulation domains before random draws and returns `SimulationArrays` payloads on `RESULTS.successful`.
@@ -25,7 +28,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Simulation configs provide aligned mixture parameter lengths, valid AF generator domains, and positive SE controls.
 
 ## Dependencies
-- **Uses**: `numpy`, `scipy`, `mut_var.contracts`, `mut_var.numerics._core` (Cython), `mut_var.numerics.solver`, `mut_var.numerics.active_set`.
+- **Uses**: `numpy`, `scipy`, `mut_var.contracts`, `mut_var.numerics._core` (Cython), `mut_var.numerics.mixsqp`.
 - **Used by**: `src/mut_var/pipelines/inference.py`, `src/mut_var/pipelines/curve.py`, and `src/mut_var/pipelines/simulation.py`.
 - **Boundary**:
   - No file I/O, CLI parsing, logging, or dataframe conversion in this domain.
@@ -35,24 +38,23 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 ## Key Decisions
 - mix-SQP (Kim et al. 2020) replaces Optimistix for baseline and refit fitting.
 - Cython hot path (`_core.pyx`) implements `compute_grad_hess`, `compute_objective`, `line_search` using BLAS.
-- Active-set QP (`active_set.py`) implements the inner QP for both unconstrained (nonneg) and ordered variants.
+- `mixsqp.py` co-locates the outer SQP loop, active-set inner QP solvers, and recoverable-status utilities for the mix-SQP stack.
 - Ordering constraint `A π ≤ 0` (hard constraint) replaces the soft penalty term in refit.
-- `simulate_mixture_data` uses `numpy.random.default_rng(seed)` for reproducibility.
+- `simulate_mixture_data` uses `numpy.random.default_rng(config.seed)` for reproducibility.
 - Curve fitting uses `scipy.optimize.least_squares(method='lm')`.
 - JAX, Equinox, and Optimistix have been fully removed from the numerics stack.
 
 ## Invariants
 - `Params.pi` sums to 1.0 (normalized) after mix-SQP convergence.
+- `FitState.likelihood_matrix` is aligned to the full observation set and reused across baseline/refit stages.
 - `fit_refit_grid` returns one model per threshold plus the initial model on successful/recoverable runs.
 - Solver outputs always report one canonical status: `successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, or `max_steps_reached`.
 - Successful simulation outputs have finite arrays with strictly positive `sigma2`.
-- `simulate_mixture_data` is reproducible for a fixed `(seed, config, n_rows)` tuple.
+- `simulate_mixture_data` is reproducible for a fixed `SimulationConfig`.
 
 ## Key Files
-- `src/mut_var/numerics/baseline.py` - baseline mixture fitting with mix-SQP.
-- `src/mut_var/numerics/refit.py` - grid refit with mix-SQP-ordered.
-- `src/mut_var/numerics/solver.py` - outer SQP loop (`mix_sqp`, `mix_sqp_ordered`, `build_ordering_matrix`).
-- `src/mut_var/numerics/active_set.py` - NumPy active-set inner QP (`solve_qp_nonneg`, `solve_qp_ordered`).
+- `src/mut_var/numerics/mixture_fit.py` - fit-state preparation, baseline fitting, and likelihood-driven refit kernels.
+- `src/mut_var/numerics/mixsqp.py` - mix-SQP outer loop, active-set QP solvers, ordering matrix construction, and recoverable-status helpers.
 - `src/mut_var/numerics/_core.pyx` - Cython BLAS hot path.
 - `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.

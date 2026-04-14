@@ -2,6 +2,7 @@ import polars as pl
 import pytest
 
 from mut_var.io import (
+    load_inference_arrays,
     read_sumstats,
     validate_maf_grid,
     validate_numeric_columns,
@@ -14,6 +15,23 @@ from tests.helpers import assert_no_traceback
 def test_read_sumstats_reads_tab_delimited_file(sumstats_valid_path):
     df = read_sumstats(str(sumstats_valid_path))
     assert df.shape == (4, 3)
+
+
+def test_load_inference_arrays_reads_validates_and_converts(sumstats_valid_path):
+    arrays = load_inference_arrays(str(sumstats_valid_path), "effect_allele_frequency", "beta", "standard_error")
+
+    assert arrays.af.shape == (4,)
+    assert arrays.beta_hat.shape == (4,)
+    assert arrays.s2.shape == (4,)
+    assert arrays.s2.tolist() == pytest.approx([0.0016, 0.0009, 0.0025, 0.0004])
+
+
+def test_load_inference_arrays_rejects_missing_columns(tmp_path):
+    path = tmp_path / "sumstats.tsv"
+    path.write_text("effect_allele_frequency\tbeta\n0.2\t0.1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Missing required column"):
+        load_inference_arrays(str(path), "effect_allele_frequency", "beta", "standard_error")
 
 
 def test_validate_required_columns_rejects_missing_columns():
