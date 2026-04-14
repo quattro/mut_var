@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 # pattern: Imperative Shell
-import hashlib
-
 from pathlib import Path
 from typing import Any
 
@@ -151,30 +149,6 @@ def validate_maf_grid(lowest: Any, highest: Any, num_breaks: Any) -> None:
         raise ValueError("num_breaks must be >= 2.")
 
 
-def dataframe_fingerprint(df: pl.DataFrame, columns: list[str]) -> str:
-    r"""Build a stable content fingerprint for selected dataframe columns."""
-    hasher = hashlib.sha256()
-    hasher.update(str(df.height).encode("utf-8"))
-    hasher.update(str(df.width).encode("utf-8"))
-    hasher.update(",".join(columns).encode("utf-8"))
-
-    for col in columns:
-        series = df.get_column(col)
-        hasher.update(col.encode("utf-8"))
-        hasher.update(str(series.dtype).encode("utf-8"))
-        if series.dtype.is_numeric():
-            arr = series.cast(pl.Float64, strict=False).fill_null(float("nan")).to_jax()
-            hasher.update(arr.tobytes())
-        else:
-            values = series.cast(pl.Utf8, strict=False).fill_null("").to_list()
-            for value in values:
-                payload = value.encode("utf-8")
-                hasher.update(len(payload).to_bytes(8, byteorder="little", signed=False))
-                hasher.update(payload)
-
-    return hasher.hexdigest()
-
-
 def to_inference_arrays(
     df: pl.DataFrame,
     af_col: str,
@@ -212,7 +186,6 @@ def payload_to_long_dataframe(payload: dict[str, object] | Any) -> pl.DataFrame:
 
 __all__ = [
     "build_maf_masks",
-    "dataframe_fingerprint",
     "load_inference_arrays",
     "payload_to_long_dataframe",
     "read_sumstats",

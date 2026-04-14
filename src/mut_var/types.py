@@ -15,9 +15,7 @@ class InferenceConfig(NamedTuple):
     num_clusters: int
     max_iter: int = 100
     tol: float = 1e-5
-    step_size: float = 0.01
     filter_threshold: float = 1e-8
-    penalty: float = 1.0
 
 
 class SimulationConfig(NamedTuple):

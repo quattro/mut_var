@@ -22,11 +22,10 @@ def test_run_simulation_pipeline_outputs_feed_inference_pipeline_smoke(tmp_path)
 
     result_df = run_inference_pipeline(
         str(observed_path),
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=2, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=2, max_iter=5),
     )
 
     assert isinstance(artifacts.truth, pl.DataFrame)

@@ -21,11 +21,10 @@ def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
     path = "tests/fixtures/sumstats_valid.tsv"
     result_df = run_inference_dataframe_pipeline(
         path,
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     assert isinstance(result_df, pl.DataFrame)
@@ -38,11 +37,10 @@ def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
 
     run_inference_dataframe_pipeline(
         "tests/fixtures/sumstats_valid.tsv",
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
@@ -56,11 +54,10 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, ca
 
     run_inference_dataframe_pipeline(
         "tests/fixtures/sumstats_valid.tsv",
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
@@ -85,11 +82,10 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
     with pytest.raises(RuntimeError) as err:
         run_inference_dataframe_pipeline(
             "tests/fixtures/sumstats_valid.tsv",
-            seed=0,
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
-            config=InferenceConfig(num_clusters=3, max_iter=2, step_size=0.5),
+            config=InferenceConfig(num_clusters=3, max_iter=2),
         )
 
     assert "non-finite" in str(err.value)
@@ -142,11 +138,10 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df,
     with pytest.raises(ValueError) as err:
         run_inference_dataframe_pipeline(
             "tests/fixtures/sumstats_valid.tsv",
-            seed=0,
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
-            config=InferenceConfig(num_clusters=1, max_iter=2, step_size=0.5),
+            config=InferenceConfig(num_clusters=1, max_iter=2),
         )
 
     assert "empty subset" in str(err.value)
@@ -166,11 +161,10 @@ def test_adapters_convert_to_arrays(sumstats_valid_df):
 def test_run_inference_pipeline_accepts_path_input():
     result_df = run_inference_dataframe_pipeline(
         "tests/fixtures/sumstats_valid.tsv",
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     assert isinstance(result_df, pl.DataFrame)
@@ -258,11 +252,10 @@ def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeyp
 
     result_df = run_inference_dataframe_pipeline(
         str(observed_path),
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=2, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=2, max_iter=5),
     )
 
     assert isinstance(result_df, pl.DataFrame)

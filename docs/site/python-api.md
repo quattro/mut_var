@@ -46,10 +46,6 @@ Shared fit-state preparation:
 
 -----
 
-::: mut_var.numerics.fit_refit_grid
-
------
-
 ::: mut_var.numerics.fit_curve
 
 -----

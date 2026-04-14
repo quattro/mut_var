@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import scipy.optimize as sco
 
-from scipy.special import expit  # sigmoid
+from scipy.special import expit, logit
 
 from mut_var.types import RESULTS, Solution
 
@@ -16,15 +16,6 @@ _POOR_FIT_RMSE_THRESHOLD = 3e-2
 _POOR_FIT_MAX_ABS_THRESHOLD = 1.5e-1
 _POOR_FIT_NONMONOTONE_SIGN_CHANGES = 2
 _POOR_FIT_NONMONOTONE_MAX_ABS_THRESHOLD = 2e-2
-
-
-def _logit(prob: np.ndarray | float) -> np.ndarray:
-    p = np.clip(np.asarray(prob, dtype=float), _PARAM_EPS, 1.0 - _PARAM_EPS)
-    return np.log(p) - np.log1p(-p)
-
-
-def _sigmoid(x: np.ndarray | float) -> np.ndarray:
-    return expit(np.asarray(x, dtype=float))
 
 
 def _midpoint_bounds(maf: np.ndarray) -> tuple[float, float]:
@@ -43,10 +34,10 @@ def _decode_latent(
     log_mid_span: float,
 ) -> np.ndarray:
     raw_left, raw_span, raw_rate, raw_mid = latent_coef
-    left_asym = float(_sigmoid(raw_left))
-    span = float(_sigmoid(raw_span))
+    left_asym = expit(raw_left)
+    span = expit(raw_span)
     right_asym = left_asym + (1.0 - left_asym) * span
-    midpoint = float(np.exp(log_mid_min + float(_sigmoid(raw_mid)) * log_mid_span))
+    midpoint = np.exp(log_mid_min + expit(raw_mid) * log_mid_span)
     return np.array([left_asym, right_asym, raw_rate, midpoint], dtype=float)
 
 
@@ -90,7 +81,7 @@ def _init_latent_parameters(
     )
 
     return np.array(
-        [_logit(left_init), _logit(span_init), 2.0 * slope_sign, _logit(midpoint_fraction)],
+        [logit(left_init), logit(span_init), 2.0 * slope_sign, logit(midpoint_fraction)],
         dtype=float,
     )
 

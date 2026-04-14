@@ -10,7 +10,6 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - `prepare_fit_state(beta_hat, s2, config) -> Solution`
   - `fit_baseline(state, config, verbose=False) -> Solution`
   - `fit_refit_step(L_sub, prev_params, config, verbose=False) -> Solution`
-  - `fit_refit_grid(L, maf_masks, init, config, verbose=False) -> Solution`
   - `fit_curve(maf, value) -> Solution`
   - `simulate_mixture_data(config) -> Solution`
 - **Guarantees**:
@@ -47,7 +46,6 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 ## Invariants
 - `Params.pi` sums to 1.0 (normalized) after mix-SQP convergence.
 - `FitState.likelihood_matrix` is aligned to the full observation set and reused across baseline/refit stages.
-- `fit_refit_grid` returns one model per threshold plus the initial model on successful/recoverable runs.
 - Solver outputs always report one canonical status: `successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, or `max_steps_reached`.
 - Successful simulation outputs have finite arrays with strictly positive `sigma2`.
 - `simulate_mixture_data` is reproducible for a fixed `SimulationConfig`.

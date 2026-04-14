@@ -10,7 +10,6 @@ from scipy.stats import norm as scipy_norm
 
 from mut_var.numerics.mixsqp import (
     build_ordering_matrix,
-    is_recoverable_result,
     mix_sqp,
     mix_sqp_ordered,
 )
@@ -387,88 +386,4 @@ def fit_refit_step(
     )
 
 
-def fit_refit_grid(
-    L: Any,
-    maf_masks: Any,
-    init: Params,
-    config: InferenceConfig,
-    verbose: bool | Callable[..., None] = False,
-) -> Solution:
-    r"""Sequentially refit mixture weights across MAF-threshold masks on a shared likelihood matrix.
-
-    **Arguments:**
-
-    - `L`: Full likelihood matrix aligned to all observations.
-    - `maf_masks`: Boolean threshold masks over observations.
-    - `init`: Initial fitted parameters used for the first ordered refit step.
-    - `config`: Inference numerics configuration.
-    - `verbose`: Optional mix-SQP-ordered progress callback.
-
-    **Returns:**
-
-    - `Solution` whose `value` is one model per threshold plus the initial model.
-
-    **Failure Modes:**
-
-    - Returns `RESULTS.invalid_input` for malformed likelihood matrices or masks.
-    - Returns `RESULTS.empty_subset` when a threshold mask is empty.
-    - Returns `RESULTS.nonfinite_objective` for non-recoverable ordered solver failures.
-    """
-    invalid_params = _validate_params(init, name="init")
-    if invalid_params is not None:
-        return Solution(value=[init], result=invalid_params.result, stats=invalid_params.stats)
-
-    L_full = _validate_likelihood_matrix(L)
-    if isinstance(L_full, Solution):
-        return Solution(value=[init], result=L_full.result, stats=L_full.stats)
-
-    if L_full.shape[1] != init.pi.shape[0]:
-        return Solution(
-            value=[init],
-            result=RESULTS.invalid_input,
-            stats={"reason": "likelihood matrix columns must align with init"},
-        )
-
-    masks_arr = np.asarray(maf_masks, dtype=bool)
-    if masks_arr.ndim != 2 or masks_arr.shape[1] != L_full.shape[0]:
-        return Solution(
-            value=[init],
-            result=RESULTS.invalid_input,
-            stats={"reason": "maf_masks must be a 2D mask array over observations"},
-        )
-
-    models: list[Params] = [init]
-    any_max_steps = False
-    threshold_diagnostics: list[dict[str, Any]] = []
-
-    for idx, mask in enumerate(masks_arr):
-        n_obs = int(mask.sum())
-        if n_obs == 0:
-            return Solution(
-                value=models,
-                result=RESULTS.empty_subset,
-                stats={"reason": f"maf mask at index {idx} is empty"},
-            )
-
-        step_solution = fit_refit_step(L_full[mask], models[-1], config, verbose=verbose)
-        if not is_recoverable_result(step_solution.result):
-            return Solution(value=models, result=step_solution.result, stats=step_solution.stats)
-        if step_solution.result == RESULTS.max_steps_reached:
-            any_max_steps = True
-
-        threshold_diagnostics.append({"threshold_index": idx, **dict(step_solution.stats or {})})
-        models.append(step_solution.value)
-
-    final_result = RESULTS.max_steps_reached if any_max_steps else RESULTS.successful
-    return Solution(
-        value=models,
-        result=final_result,
-        stats={
-            "num_models": len(models),
-            "num_thresholds": int(masks_arr.shape[0]),
-            "threshold_diagnostics": threshold_diagnostics,
-        },
-    )
-
-
-__all__ = ["FitState", "Params", "fit_baseline", "fit_refit_grid", "fit_refit_step", "prepare_fit_state"]
+__all__ = ["FitState", "Params", "fit_baseline", "fit_refit_step", "prepare_fit_state"]

@@ -192,7 +192,6 @@ Canonical numerics entrypoints live under `mut_var.numerics`:
 - `mut_var.numerics.fit_baseline`
 - `mut_var.numerics.fit_refit_step`
 - `mut_var.numerics.fit_curve`
-- `mut_var.numerics.fit_refit_grid`
 - `mut_var.numerics.simulate_mixture_data`
 
 Pipeline APIs return dataframe outputs (or dataframe artifact containers for simulation) for downstream consumption and file IO.

@@ -245,11 +245,6 @@ def merge_recoverable_results(*results: RESULTS) -> RESULTS:
     return cast(RESULTS, RESULTS.successful)
 
 
-def is_nonfinite(value: object) -> bool:
-    r"""Return ``True`` when any value is non-finite."""
-    return not bool(np.isfinite(np.asarray(value)).all())
-
-
 def _make_log_fn(verbose: bool | Callable[..., Any]) -> Callable[..., None] | None:
     if callable(verbose):
         return verbose
@@ -396,7 +391,6 @@ def mix_sqp_ordered(
 
 __all__ = [
     "build_ordering_matrix",
-    "is_nonfinite",
     "is_recoverable_result",
     "merge_recoverable_results",
     "mix_sqp",

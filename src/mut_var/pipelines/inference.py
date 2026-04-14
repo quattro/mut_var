@@ -186,7 +186,6 @@ def run_inference_pipeline(
     lowest: float = 1e-5,
     highest: float = 1e-2,
     num_breaks: int = 10,
-    seed: int = 0,
     config: InferenceConfig | None = None,
     log: logging.Logger | None = None,
 ) -> pl.DataFrame:
@@ -201,7 +200,6 @@ def run_inference_pipeline(
     - `lowest`: Minimum MAF threshold for grid construction.
     - `highest`: Maximum MAF threshold for grid construction.
     - `num_breaks`: Number of MAF grid breakpoints.
-    - `seed`: PRNG seed (retained for API compatibility; currently unused).
     - `config`: Optional numerics config; defaults to `InferenceConfig(num_clusters=30)`.
     - `log`: Optional logger for workflow diagnostics.
 

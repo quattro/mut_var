@@ -7,7 +7,7 @@ import pytest
 import mut_var.cli as cli
 import mut_var.numerics.mixture_fit as mixture_fit_module
 
-from mut_var.numerics.mixture_fit import fit_baseline, fit_refit_grid, fit_refit_step, prepare_fit_state
+from mut_var.numerics.mixture_fit import fit_baseline, fit_refit_step, prepare_fit_state
 from mut_var.types import InferenceConfig, RESULTS, Solution
 
 
@@ -18,11 +18,11 @@ def test_fit_baseline_returns_structured_solution_on_valid_arrays():
     prepared = prepare_fit_state(
         beta_hat=beta_hat,
         s2=s2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
     solution = fit_baseline(
         state=prepared.value,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     assert prepared.result == RESULTS.successful
@@ -79,11 +79,11 @@ def test_fit_baseline_uses_mix_sqp_solver():
     prepared = prepare_fit_state(
         beta_hat=beta_hat,
         s2=s2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
     solution = fit_baseline(
         state=prepared.value,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     assert prepared.result == RESULTS.successful
@@ -99,69 +99,11 @@ def test_inference_config_no_longer_exposes_solver_backend_knob():
         cast(Any, InferenceConfig)(num_clusters=3, solver_backend="optimistix")
 
 
-def test_fit_refit_grid_returns_one_model_per_threshold_plus_init():
-    L = np.array(
-        [
-            [0.8, 0.2],
-            [0.7, 0.3],
-            [0.9, 0.1],
-            [0.85, 0.15],
-            [0.75, 0.25],
-        ]
-    )
-    maf_masks = np.array([[True, True, True, True, True]], dtype=bool)
-    init = mixture_fit_module.Params(
-        pi=np.array([0.8, 0.2]),
-        mu_k=np.array([0.0]),
-        var_k=np.array([1.0]),
-    )
-
-    solution = fit_refit_grid(
-        L=L,
-        maf_masks=maf_masks,
-        init=init,
-        config=InferenceConfig(num_clusters=2, max_iter=5, step_size=0.5),
-    )
-
-    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert len(solution.value) == 2  # baseline + 1 threshold
-
-
-def test_fit_refit_grid_returns_normalized_weights():
-    L = np.array(
-        [
-            [0.8, 0.2],
-            [0.7, 0.3],
-            [0.9, 0.1],
-            [0.85, 0.15],
-            [0.75, 0.25],
-        ]
-    )
-    maf_masks = np.array(
-        [
-            [True, True, True, True, True],
-            [True, True, False, True, False],
-            [True, False, False, True, False],
-        ],
-        dtype=bool,
-    )
-    init = mixture_fit_module.Params(
-        pi=np.array([0.8, 0.2]),
-        mu_k=np.array([0.0]),
-        var_k=np.array([1.0]),
-    )
-
-    solution = fit_refit_grid(
-        L=L,
-        maf_masks=maf_masks,
-        init=init,
-        config=InferenceConfig(num_clusters=2, max_iter=5, step_size=0.5),
-    )
-
-    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    # Each model should have weights summing to 1.
-    for model in solution.value:
-        assert abs(model.pi.sum() - 1.0) < 1e-6
+def test_inference_config_no_longer_exposes_legacy_optimization_knobs():
+    with pytest.raises(TypeError):
+        cast(Any, InferenceConfig)(num_clusters=3, step_size=0.5)
+    with pytest.raises(TypeError):
+        cast(Any, InferenceConfig)(num_clusters=3, penalty=1.0)
 
 
 def test_fit_refit_step_returns_updated_params_for_likelihood_subset():
@@ -174,7 +116,7 @@ def test_fit_refit_step_returns_updated_params_for_likelihood_subset():
     solution = fit_refit_step(
         L_sub=np.array([[0.8, 0.2], [0.7, 0.3], [0.85, 0.15]]),
         prev_params=init,
-        config=InferenceConfig(num_clusters=2, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=2, max_iter=5),
     )
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)

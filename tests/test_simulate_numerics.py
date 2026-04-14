@@ -30,7 +30,7 @@ def _valid_config(**overrides) -> SimulationConfig:
 
 
 def test_simulate_mixture_data_returns_solution_and_arrays_on_valid_config():
-    solution = simulate_mixture_data(config=_valid_config(n_rows=256, seed=0))
+    solution = simulate_mixture_data(config=_valid_config(n_rows=256))
 
     assert isinstance(solution, Solution)
     assert solution.result == RESULTS.successful
@@ -49,7 +49,7 @@ def test_simulate_mixture_data_returns_solution_and_arrays_on_valid_config():
 def test_simulate_mixture_data_rejects_invalid_weight_shapes():
     config = _valid_config(weights=(1.0,), log_var_scales=(-8.0,))
 
-    solution = simulate_mixture_data(config=config._replace(n_rows=32, seed=0))
+    solution = simulate_mixture_data(config=config._replace(n_rows=32))
 
     assert solution.result == RESULTS.invalid_input
     assert solution.stats is not None
@@ -59,7 +59,7 @@ def test_simulate_mixture_data_rejects_invalid_weight_shapes():
 def test_simulate_mixture_data_rejects_invalid_theta():
     config = _valid_config(theta=-0.1)
 
-    solution = simulate_mixture_data(config=config._replace(n_rows=32, seed=0))
+    solution = simulate_mixture_data(config=config._replace(n_rows=32))
 
     assert solution.result == RESULTS.invalid_input
     assert solution.stats is not None
@@ -87,7 +87,7 @@ def test_simulate_mixture_data_reproducible_for_fixed_seed():
 def test_variance_link_outputs_positive_finite_sigma2_for_all_links():
     for link in ("none", "maf_power", "maf_power_shifted"):
         config = _valid_config(variance_link=link, link_shift=1e-3 if link == "maf_power_shifted" else 0.0)
-        solution = simulate_mixture_data(config=config._replace(n_rows=20000, seed=0))
+        solution = simulate_mixture_data(config=config._replace(n_rows=20000))
 
         assert solution.result == RESULTS.successful
         sigma2 = solution.value.sigma2

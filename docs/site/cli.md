@@ -23,10 +23,8 @@ Model and optimizer controls:
 
 - `-k, --num-clusters`
 - `-m, --max-iter`
-- `-r, --step-size`
-- `-s, --seed`
 - `-f, --filter`
-- `--penalty`
+- `--tol`
 
 MAF grid controls:
 
