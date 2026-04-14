@@ -5,8 +5,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from mut_var.config import SimulationConfig
-from mut_var.contracts import RESULTS, Solution
+from mut_var.types import RESULTS, SimulationConfig, Solution
 
 
 class SimulationArrays(NamedTuple):

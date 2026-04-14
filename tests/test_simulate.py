@@ -5,12 +5,11 @@ import pytest
 
 import mut_var
 
-from mut_var.config import SimulationConfig
-from mut_var.contracts import RESULTS, Solution
 from mut_var.pipelines import (
     run_simulation_pipeline,
     SimulationArtifacts,
 )
+from mut_var.types import RESULTS, SimulationConfig, Solution
 
 
 def _pipeline_config(n_rows: int = 200) -> SimulationConfig:

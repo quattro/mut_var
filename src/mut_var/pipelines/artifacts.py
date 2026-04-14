@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# pattern: Functional Core
 from typing import NamedTuple
 
 import numpy as np
@@ -18,7 +19,4 @@ class SimulationArtifacts(NamedTuple):
     metadata: pl.DataFrame
 
 
-__all__ = [
-    "InferenceArrays",
-    "SimulationArtifacts",
-]
+__all__ = ["InferenceArrays", "SimulationArtifacts"]

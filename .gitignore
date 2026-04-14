@@ -5,6 +5,7 @@ data/
 site/
 
 tmp
+tmp.*
 *.png
 
 # Temporary and binary files
@@ -17,7 +18,7 @@ tmp
 *.orig
 *.log
 *.pot
-__pycache__/*
+__pycache__/
 .cache/*
 .*.swp
 */.ipynb_checkpoints/*

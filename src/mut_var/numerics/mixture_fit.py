@@ -8,14 +8,13 @@ import numpy as np
 
 from scipy.stats import norm as scipy_norm
 
-from mut_var.config import InferenceConfig
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics.mixsqp import (
     build_ordering_matrix,
     is_recoverable_result,
     mix_sqp,
     mix_sqp_ordered,
 )
+from mut_var.types import InferenceConfig, RESULTS, Solution
 
 
 class Params(NamedTuple):

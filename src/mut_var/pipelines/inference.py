@@ -11,8 +11,6 @@ import polars as pl
 
 import mut_var.numerics.mixture_fit as mixture_fit_module
 
-from mut_var.config import InferenceConfig
-from mut_var.contracts import RESULTS, Solution
 from mut_var.io import (
     build_maf_masks,
     load_inference_arrays,
@@ -20,6 +18,7 @@ from mut_var.io import (
     validate_maf_grid,
 )
 from mut_var.numerics.mixsqp import is_recoverable_result, merge_recoverable_results
+from mut_var.types import InferenceConfig, RESULTS, Solution
 
 if TYPE_CHECKING:
     from mut_var.numerics.mixture_fit import Params

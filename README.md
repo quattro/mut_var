@@ -40,7 +40,7 @@ pip install mut-var
 Canonical infer pipeline:
 
 - CLI: `mutvar infer <sumstats.tsv> [options]`
-- API (pipeline): `mut_var.run_inference_pipeline(df, ...)` -> validated `polars.DataFrame`
+- API (pipeline): `mut_var.run_inference_pipeline(path, ...)` -> long-format `polars.DataFrame`
 
 Canonical simulation pipeline:
 
@@ -57,6 +57,17 @@ Canonical curve pipeline:
 
 - CLI: `mutvar curve <mutvar-output.tsv> [--fit-only]`
 - API: `mut_var.run_curve_pipeline(input_path, generate_plots=...)` -> coefficients `polars.DataFrame`
+
+Python inference example:
+
+```python
+from mut_var import InferenceConfig, run_inference_pipeline
+
+result_df = run_inference_pipeline(
+    "data/bmi_exwas.tsv.gz",
+    config=InferenceConfig(num_clusters=30),
+)
+```
 
 ## Simulation Workflow
 
@@ -177,20 +188,22 @@ observed_df = artifacts.observed
 
 Canonical numerics entrypoints live under `mut_var.numerics`:
 
+- `mut_var.numerics.prepare_fit_state`
 - `mut_var.numerics.fit_baseline`
+- `mut_var.numerics.fit_refit_step`
 - `mut_var.numerics.fit_curve`
 - `mut_var.numerics.fit_refit_grid`
 - `mut_var.numerics.simulate_mixture_data`
 
 Pipeline APIs return dataframe outputs (or dataframe artifact containers for simulation) for downstream consumption and file IO.
-Core numerics APIs return `mut_var.contracts.Solution` with explicit `result` status and diagnostics in `stats`/`state`.
+Core numerics APIs return `mut_var.types.Solution` with explicit `result` status and diagnostics in `stats`/`state`.
 
 `mut_var.cli` is the imperative shell (argument parsing, boundary validation, IO orchestration); it
 is not the numerics implementation module.
 
 ## Numerics Failure Status Catalog
 
-`mut_var.contracts.RESULTS` explicitly encodes pipeline outcomes:
+`mut_var.types.RESULTS` explicitly encodes pipeline outcomes:
 
 - `successful`
 - `invalid_input`
@@ -198,7 +211,7 @@ is not the numerics implementation module.
 - `nonfinite_objective`
 - `max_steps_reached`
 
-`mut_var.contracts.Solution` carries:
+`mut_var.types.Solution` carries:
 
 - `value`: result payload (if available)
 - `result`: status code from `RESULTS`
@@ -212,7 +225,7 @@ Empty-subset and non-finite paths are explicit and diagnosable.
 ```python
 from mut_var import run_inference_pipeline
 
-result_df = run_inference_pipeline(df)
+result_df = run_inference_pipeline("data/bmi_exwas.tsv.gz")
 print(result_df.head())
 ```
 
@@ -222,7 +235,7 @@ Curve fitting is split into:
 
 - Pure numerics: `mut_var.numerics.fit_curve`
 - Optional plotting adapter: `mut_var.plotting.curve_plots`
-- Orchestration pipeline: `mut_var.curve.run_curve_pipeline`
+- Orchestration pipeline: `mut_var.run_curve_pipeline`
 
 Behavior guarantees:
 
@@ -236,7 +249,7 @@ Behavior guarantees:
 This release is a breaking release. Migration summary:
 
 1. Replace direct imports of legacy CLI internals with package-root pipeline APIs.
-2. Use dataframe pipeline APIs (`run_inference_pipeline`, `run_curve_pipeline`) at the orchestration boundary.
+2. Use path-based pipeline APIs (`run_inference_pipeline`, `run_curve_pipeline`) at the orchestration boundary.
 3. Treat `Solution.result` as the canonical success/failure signal for numerics-level APIs.
 4. Update automation to required gates:
    - `ruff check src/mut_var tests`
@@ -244,9 +257,6 @@ This release is a breaking release. Migration summary:
    - `pytest -p no:capture`
 
 Detailed breaking-change notes are in `CHANGELOG.md`.
-Human migration review artifact: `docs/reviews/migration-guide-signoff.md`.
-Supported import paths are listed in `docs/api.md`.
-Migration-guide sign-off decision: `approved (2026-02-19)`.
 
 ## Performance Profiling Status
 

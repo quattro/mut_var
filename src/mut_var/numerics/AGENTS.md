@@ -28,7 +28,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Simulation configs provide aligned mixture parameter lengths, valid AF generator domains, and positive SE controls.
 
 ## Dependencies
-- **Uses**: `numpy`, `scipy`, `mut_var.contracts`, `mut_var.numerics._core` (Cython), `mut_var.numerics.mixsqp`.
+- **Uses**: `numpy`, `scipy`, `mut_var.types`, `mut_var.numerics._core` (Cython), `mut_var.numerics.mixsqp`.
 - **Used by**: `src/mut_var/pipelines/inference.py`, `src/mut_var/pipelines/curve.py`, and `src/mut_var/pipelines/simulation.py`.
 - **Boundary**:
   - No file I/O, CLI parsing, logging, or dataframe conversion in this domain.

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mut_var.config import SimulationConfig
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import simulate_mixture_data
+from mut_var.types import RESULTS, SimulationConfig, Solution
 
 
 def _valid_config(**overrides) -> SimulationConfig:

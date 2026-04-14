@@ -7,9 +7,8 @@ import pytest
 import mut_var.cli as cli
 import mut_var.numerics.mixture_fit as mixture_fit_module
 
-from mut_var.config import InferenceConfig
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics.mixture_fit import fit_baseline, fit_refit_grid, fit_refit_step, prepare_fit_state
+from mut_var.types import InferenceConfig, RESULTS, Solution
 
 
 def test_fit_baseline_returns_structured_solution_on_valid_arrays():

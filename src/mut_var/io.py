@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from mut_var.pipelines.types import InferenceArrays
+from mut_var.pipelines.artifacts import InferenceArrays
 
 
 def read_sumstats(path: str) -> pl.DataFrame:

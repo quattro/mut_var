@@ -9,13 +9,12 @@ import mut_var
 import mut_var.cli as cli
 import mut_var.numerics as numerics
 
-from mut_var.config import InferenceConfig, SimulationConfig
-from mut_var.contracts import RESULTS, Solution
 from mut_var.io import to_inference_arrays
 from mut_var.pipelines import (
     run_inference_pipeline as run_inference_dataframe_pipeline,
     run_simulation_pipeline,
 )
+from mut_var.types import InferenceConfig, RESULTS, SimulationConfig, Solution
 
 
 def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
@@ -193,7 +192,7 @@ def test_numerics_public_surface_does_not_export_profiling_helpers():
 
 
 def test_numerics_module_owns_numerics_entrypoint():
-    import mut_var.config as config_module
+    import mut_var.types as config_module
 
     assert importlib.util.find_spec("mut_var.numerics.pipeline") is None
     assert config_module.InferenceConfig is InferenceConfig

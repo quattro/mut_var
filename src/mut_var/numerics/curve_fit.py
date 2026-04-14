@@ -6,7 +6,7 @@ import scipy.optimize as sco
 
 from scipy.special import expit  # sigmoid
 
-from mut_var.contracts import RESULTS, Solution
+from mut_var.types import RESULTS, Solution
 
 _MAF_EPS = 1e-12
 _PARAM_EPS = 1e-9

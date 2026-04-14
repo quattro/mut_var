@@ -6,10 +6,9 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
-from mut_var.config import SimulationConfig
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import simulate_mixture_data, SimulationArrays
-from mut_var.pipelines.types import SimulationArtifacts
+from mut_var.pipelines.artifacts import SimulationArtifacts
+from mut_var.types import RESULTS, SimulationConfig, Solution
 
 
 def _to_numpy(values: jnp.ndarray | object, dtype: np.dtype) -> np.ndarray:

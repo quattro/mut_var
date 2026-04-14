@@ -4,6 +4,7 @@
 
 - `mutvar infer <sumstats.tsv> [options]`
 - `mutvar curve <mutvar-output.tsv> [options]`
+- `mutvar simulate --output-prefix <prefix> [options]`
 
 ## `infer` Options
 
@@ -31,7 +32,7 @@ MAF grid controls:
 
 - `--lowest`
 - `--highest`
-- `--num_breaks`
+- `--num-breaks`
 
 Logging:
 
@@ -42,6 +43,40 @@ Logging:
 - `data` input TSV from `mutvar infer`
 - `-o, --output` output TSV path (defaults to stdout)
 - `--fit-only` skips PNG generation
+
+## `simulate` Options
+
+Output:
+
+- `--output-prefix` required filename prefix
+- `--output-dir` output directory
+
+Core:
+
+- `--n-rows`
+- `--seed`
+
+Mixture:
+
+- `--weights`
+- `--log-var-scales`
+
+Link and sampling:
+
+- `--variance-link`
+- `--theta`
+- `--link-eps`
+- `--link-shift`
+- `--af-model`
+- `--af-clip-min`
+- `--af-uniform-low`
+- `--af-uniform-high`
+- `--af-beta-a`
+- `--af-beta-b`
+- `--se-model`
+- `--se-constant`
+- `--sample-size`
+- `--se-scale`
 
 ## Exit Codes
 

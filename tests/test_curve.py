@@ -11,9 +11,9 @@ import polars as pl
 
 from scipy.special import expit
 
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics.curve_fit import curve, fit_curve
 from mut_var.pipelines import run_curve_pipeline
+from mut_var.types import RESULTS, Solution
 
 FIXTURE = Path(__file__).parent / "fixtures" / "curve_small.tsv"
 

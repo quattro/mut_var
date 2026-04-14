@@ -1,10 +1,10 @@
 import polars as pl
 
-from mut_var.config import InferenceConfig, SimulationConfig
 from mut_var.pipelines import (
     run_inference_pipeline,
     run_simulation_pipeline,
 )
+from mut_var.types import InferenceConfig, SimulationConfig
 
 
 def test_run_simulation_pipeline_outputs_feed_inference_pipeline_smoke(tmp_path):

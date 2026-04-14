@@ -1,6 +1,6 @@
 # Python API
 
-## Toplevel APIs
+## Workflow APIs
 
 ::: mut_var.run_inference_pipeline
 
@@ -11,15 +11,38 @@
         show_bases: true
 
 -----
+
+::: mut_var.run_simulation_pipeline
+
+-----
+
+## Public Configs
+
+::: mut_var.InferenceConfig
+
+-----
+
+::: mut_var.SimulationConfig
+
+-----
+
 ## Numerics APIs
 
-Numerics implementations are available under `mut_var.numerics`:
+Numerics implementations are available under `mut_var.numerics`. These are lower-level,
+array-oriented entrypoints intended for direct experimentation and testing rather than the
+primary CLI-facing workflow.
+
+Shared fit-state preparation:
+
+::: mut_var.numerics.prepare_fit_state
+
+-----
 
 ::: mut_var.numerics.fit_baseline
 
 -----
 
-::: mut_var.numerics.fit_curve
+::: mut_var.numerics.fit_refit_step
 
 -----
 
@@ -27,40 +50,39 @@ Numerics implementations are available under `mut_var.numerics`:
 
 -----
 
-Numerics-level status is reported through:
+::: mut_var.numerics.fit_curve
 
-- `mut_var.contracts.Solution`
-- `mut_var.contracts.RESULTS`
+-----
+
+Simulation numerics:
+
+::: mut_var.numerics.simulate_mixture_data
+
+-----
+
+Numerics-level status is reported through `mut_var.types`:
+
+- `mut_var.types.Solution`
+- `mut_var.types.RESULTS`
 
 Use `Solution.result` as the canonical success/failure signal.
 
-## Configuration Classes
+## Pipeline Types
 
-::: mut_var.infer.InferenceConfig
-    options:
-        members:
-            - __init__
-            - to_baseline_config
-            - to_refit_config
+::: mut_var.pipelines.InferenceArrays
 
-::: mut_var.numerics.baseline.BaselineConfig
-    options:
-        members:
-            - __init__
+-----
 
-::: mut_var.numerics.refit.RefitConfig
-    options:
-        members:
-            - __init__
+::: mut_var.SimulationArtifacts
 
 ## Example
 
 ```python
-import polars as pl
+from mut_var import InferenceConfig, run_inference_pipeline
 
-from mut_var import run_inference_pipeline
-
-df = pl.read_csv("data/bmi_exwas.tsv.gz", separator="\t")
-result_df = run_inference_pipeline(df)
+result_df = run_inference_pipeline(
+    "data/bmi_exwas.tsv.gz",
+    config=InferenceConfig(num_clusters=30),
+)
 print(result_df.head())
 ```

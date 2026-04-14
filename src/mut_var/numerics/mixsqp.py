@@ -6,8 +6,8 @@ from typing import Any, cast
 
 import numpy as np
 
-from mut_var.contracts import RESULTS
 from mut_var.numerics._core import compute_grad_hess, compute_objective, line_search
+from mut_var.types import RESULTS
 
 RECOVERABLE_RESULTS = (RESULTS.successful, RESULTS.max_steps_reached)
 

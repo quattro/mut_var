@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from mut_var.contracts import RESULTS, Solution
+from mut_var.types import RESULTS, Solution
 
 
 def test_contracts_enum_values_are_stable():

@@ -8,12 +8,12 @@ import sys
 from pathlib import Path
 from typing import Sequence, TextIO
 
-from mut_var.config import InferenceConfig, SimulationConfig
 from mut_var.pipelines import (
     run_curve_pipeline,
     run_inference_pipeline,
     run_simulation_pipeline,
 )
+from mut_var.types import InferenceConfig, SimulationConfig
 
 FMT = ap.ArgumentDefaultsHelpFormatter
 
