@@ -40,6 +40,7 @@ Logging:
 
 - `data` input TSV from `mutvar infer`
 - `-o, --output` output TSV path (defaults to stdout)
+- `--method` curve fitting method (`sigmoid` default, `isotonic` alternative)
 - `--fit-only` skips PNG generation
 
 ## `simulate` Options

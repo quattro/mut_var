@@ -46,7 +46,11 @@ Shared fit-state preparation:
 
 -----
 
-::: mut_var.numerics.fit_curve
+::: mut_var.numerics.fit_curve_model
+
+-----
+
+::: mut_var.numerics.evaluate_curve_fit
 
 -----
 
@@ -81,4 +85,17 @@ result_df = run_inference_pipeline(
     config=InferenceConfig(num_clusters=30),
 )
 print(result_df.head())
+```
+
+Curve fitting returns a method-neutral parameter dataframe:
+
+```python
+from mut_var import run_curve_pipeline
+
+fit_df = run_curve_pipeline(
+    "data/curve-output.tsv",
+    generate_plots=False,
+    method="sigmoid",
+)
+print(fit_df.head())
 ```

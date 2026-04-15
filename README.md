@@ -55,8 +55,8 @@ Canonical simulation pipeline:
 
 Canonical curve pipeline:
 
-- CLI: `mutvar curve <mutvar-output.tsv> [--fit-only]`
-- API: `mut_var.run_curve_pipeline(input_path, generate_plots=...)` -> coefficients `polars.DataFrame`
+- CLI: `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic] [--fit-only]`
+- API: `mut_var.run_curve_pipeline(input_path, generate_plots=..., method=...)` -> method-neutral parameter `polars.DataFrame`
 
 Python inference example:
 
@@ -191,7 +191,8 @@ Canonical numerics entrypoints live under `mut_var.numerics`:
 - `mut_var.numerics.prepare_fit_state`
 - `mut_var.numerics.fit_baseline`
 - `mut_var.numerics.fit_refit_step`
-- `mut_var.numerics.fit_curve`
+- `mut_var.numerics.fit_curve_model`
+- `mut_var.numerics.evaluate_curve_fit`
 - `mut_var.numerics.simulate_mixture_data`
 
 Pipeline APIs return dataframe outputs (or dataframe artifact containers for simulation) for downstream consumption and file IO.
@@ -232,16 +233,18 @@ print(result_df.head())
 
 Curve fitting is split into:
 
-- Pure numerics: `mut_var.numerics.fit_curve`
+- Pure numerics: `mut_var.numerics.fit_curve_model` + `mut_var.numerics.evaluate_curve_fit`
 - Optional plotting adapter: `mut_var.plotting.curve_plots`
 - Orchestration pipeline: `mut_var.run_curve_pipeline`
+- Method selection at the workflow boundary: `sigmoid` (default) or `isotonic`
 
 Behavior guarantees:
 
 - Fit-only mode (`generate_plots=False` / `mutvar curve --fit-only`) does not import plotting
   adapters and produces no PNG side effects.
-- Plotting mode consumes precomputed fit outputs and only adds PNG side effects; fitted coefficients
+- Plotting mode consumes precomputed fit outputs and only adds PNG side effects; fitted outputs
   remain unchanged.
+- Curve output is method-neutral and records `var0`, `method`, `param_name`, and `param_value`.
 
 ## Migration Guide
 

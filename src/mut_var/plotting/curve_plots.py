@@ -13,7 +13,7 @@ def render_curve_plot(
     title: str,
     output_path: str | Path,
 ) -> Path:
-    r"""Render and save a semilog curve-fit plot, returning the written path."""
+    r"""Render and save a semilog fitted-curve plot, returning the written path."""
     path = Path(output_path)
 
     plt.figure(figsize=(6, 4))

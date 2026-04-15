@@ -138,10 +138,17 @@ def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         "--output",
         type=ap.FileType("w"),
         default=sys.stdout,
-        help="Output destination for curve coefficient TSV.",
+        help="Output destination for curve fit TSV.",
     )
 
     curve_group = curve.add_argument_group("Curve Options")
+    curve_group.add_argument(
+        "--method",
+        type=str,
+        choices=("sigmoid", "isotonic"),
+        default="sigmoid",
+        help="Curve fitting method.",
+    )
     curve_group.add_argument(
         "--fit-only",
         action="store_true",
@@ -346,7 +353,12 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     """
     try:
         log.info("curve: starting curve pipeline")
-        coef_df = run_curve_pipeline(args.data, generate_plots=not args.fit_only, log=log)
+        fit_df = run_curve_pipeline(
+            args.data,
+            generate_plots=not args.fit_only,
+            method=args.method,
+            log=log,
+        )
         log.info("curve: curve pipeline completed")
     except (ValueError, FileNotFoundError) as exc:
         log.error(str(exc))
@@ -356,7 +368,7 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
         return 1
 
     log.info("curve: writing output to '%s'", _output_target(args.output))
-    coef_df.write_csv(args.output, separator="\t")
+    fit_df.write_csv(args.output, separator="\t")
     log.info("curve: finished writing output")
     return 0
 

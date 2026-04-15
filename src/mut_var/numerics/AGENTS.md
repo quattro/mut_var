@@ -10,7 +10,8 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - `prepare_fit_state(beta_hat, s2, config) -> Solution`
   - `fit_baseline(state, config, verbose=False) -> Solution`
   - `fit_refit_step(L_sub, prev_params, config, verbose=False) -> Solution`
-  - `fit_curve(maf, value) -> Solution`
+  - `fit_curve_model(maf, value, method="sigmoid") -> Solution`
+  - `evaluate_curve_fit(fit, maf) -> np.ndarray`
   - `simulate_mixture_data(config) -> Solution`
 - **Guarantees**:
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths.
@@ -19,6 +20,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Refit optimization consumes precomputed likelihood matrices and uses mix-SQP-ordered with bidiagonal ordering constraint `A π ≤ 0`.
   - Optional `verbose` callable `(step, obj) -> None` emits per-step diagnostics.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.
+  - Curve fitting supports `sigmoid` and `isotonic` methods through a method-neutral fit result.
   - `simulate_mixture_data` validates simulation domains before random draws and returns `SimulationArrays` payloads on `RESULTS.successful`.
 - **Expects**:
   - Array-like inputs only (NumPy-compatible), not dataframe objects.
@@ -40,7 +42,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `mixsqp.py` co-locates the outer SQP loop, active-set inner QP solvers, and recoverable-status utilities for the mix-SQP stack.
 - Ordering constraint `A π ≤ 0` (hard constraint) replaces the soft penalty term in refit.
 - `simulate_mixture_data` uses `numpy.random.default_rng(config.seed)` for reproducibility.
-- Curve fitting uses `scipy.optimize.least_squares(method='lm')`.
+- Sigmoid curve fitting uses `scipy.optimize.least_squares(method='lm')`; isotonic fitting uses weighted pooled-adjacent-violators regression on sorted unique MAF support.
 - JAX, Equinox, and Optimistix have been fully removed from the numerics stack.
 
 ## Invariants
@@ -54,7 +56,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `src/mut_var/numerics/mixture_fit.py` - fit-state preparation, baseline fitting, and likelihood-driven refit kernels.
 - `src/mut_var/numerics/mixsqp.py` - mix-SQP outer loop, active-set QP solvers, ordering matrix construction, and recoverable-status helpers.
 - `src/mut_var/numerics/_core.pyx` - Cython BLAS hot path.
-- `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
+- `src/mut_var/numerics/curve_fit.py` - method-neutral curve fitting/evaluation kernels for sigmoid and isotonic fits.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.
 
 ## Gotchas

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+# pattern: Imperative Shell
 import logging
 
 from pathlib import Path
 
-import jax.numpy as jnp
+import numpy as np
 import polars as pl
 
-from mut_var.numerics.curve_fit import curve, fit_curve
-from mut_var.types import RESULTS
+from mut_var.numerics.curve_fit import CurveFitResult, CurveMethod, evaluate_curve_fit, fit_curve_model
+from mut_var.types import RESULTS, Solution
 
 
 def _to_scalar_var(variance) -> float:
@@ -17,25 +18,81 @@ def _to_scalar_var(variance) -> float:
     return float(variance)
 
 
-def _coefficients_dataframe(coeff_rows: list[dict[str, float]]) -> pl.DataFrame:
-    if not coeff_rows:
+def _parameter_rows(var0: float, fit: CurveFitResult) -> list[dict[str, str | float]]:
+    if fit.method == "sigmoid":
+        names = ("left", "right", "rate", "midpoint")
+        values = np.asarray(fit.payload, dtype=float)
+        return [
+            {
+                "var0": var0,
+                "method": fit.method,
+                "param_name": name,
+                "param_value": float(value),
+            }
+            for name, value in zip(names, values, strict=True)
+        ]
+
+    if fit.method == "isotonic":
+        if fit.support is None:
+            raise ValueError("isotonic fit is missing support values")
+        rows: list[dict[str, str | float]] = [
+            {
+                "var0": var0,
+                "method": fit.method,
+                "param_name": "increasing",
+                "param_value": float(bool(fit.increasing)),
+            }
+        ]
+        support = np.asarray(fit.support, dtype=float)
+        payload = np.asarray(fit.payload, dtype=float)
+        for idx, (x_val, y_val) in enumerate(zip(support, payload, strict=True)):
+            rows.append(
+                {
+                    "var0": var0,
+                    "method": fit.method,
+                    "param_name": f"x_{idx}",
+                    "param_value": float(x_val),
+                }
+            )
+            rows.append(
+                {
+                    "var0": var0,
+                    "method": fit.method,
+                    "param_name": f"y_{idx}",
+                    "param_value": float(y_val),
+                }
+            )
+        return rows
+
+    raise ValueError(f"unsupported curve method: {fit.method}")
+
+
+def _parameters_dataframe(rows: list[dict[str, str | float]]) -> pl.DataFrame:
+    if not rows:
         return pl.DataFrame(
             schema={
                 "var0": pl.Float64,
-                "coef_left": pl.Float64,
-                "coef_right": pl.Float64,
-                "coef_rate": pl.Float64,
-                "coef_midpoint": pl.Float64,
+                "method": pl.Utf8,
+                "param_name": pl.Utf8,
+                "param_value": pl.Float64,
             }
         )
+    return pl.DataFrame(rows).select(["var0", "method", "param_name", "param_value"])
 
-    return pl.DataFrame(coeff_rows).select(["var0", "coef_left", "coef_right", "coef_rate", "coef_midpoint"])
+
+def _reason_from_solution(solution: Solution, var0: float) -> str:
+    if isinstance(solution.stats, dict):
+        reason = solution.stats.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            return reason
+    return f"curve fit failed with status '{solution.result.value}' at var0={var0}."
 
 
 def run_curve_pipeline(
     input_path: str,
     *,
     generate_plots: bool,
+    method: CurveMethod = "sigmoid",
     log: logging.Logger | None = None,
 ) -> pl.DataFrame:
     r"""Run curve fitting for each `var0` group from tabular input.
@@ -44,11 +101,12 @@ def run_curve_pipeline(
 
     - `input_path`: Tab-delimited input path with `maf`, `value`, and `var0` columns.
     - `generate_plots`: When `True`, render one PNG per `var0` group.
+    - `method`: Curve method to apply (`sigmoid` or `isotonic`).
     - `log`: Optional logger for workflow diagnostics.
 
     **Returns:**
 
-    - Coefficient dataframe (`var0`, `coef_left`, `coef_right`, `coef_rate`, `coef_midpoint`).
+    - Method-neutral parameter dataframe (`var0`, `method`, `param_name`, `param_value`).
 
     **Raises:**
 
@@ -74,25 +132,22 @@ def run_curve_pipeline(
     if missing:
         raise ValueError(f"missing required curve columns: {', '.join(sorted(missing))}")
     workflow_log.info("curve pipeline: input validation complete")
+    workflow_log.info("curve pipeline: using method '%s'", method)
 
-    coeff_rows: list[dict[str, float]] = []
+    parameter_rows: list[dict[str, str | float]] = []
 
     workflow_log.info("curve pipeline: starting curve fitting")
     grouped = df.sort(["var0", "maf"]).group_by("var0", maintain_order=True)
     for variance, df_sub in grouped:
         var0 = _to_scalar_var(variance)
         workflow_log.debug("curve pipeline: fitting variance bin var0=%s", var0)
-        maf = jnp.asarray(df_sub["maf"].to_jax())
-        value = jnp.asarray(df_sub["value"].to_jax())
+        maf = np.asarray(df_sub["maf"].to_numpy(), dtype=float)
+        value = np.asarray(df_sub["value"].to_numpy(), dtype=float)
 
-        fit_solution = fit_curve(maf, value)
+        fit_solution = fit_curve_model(maf, value, method=method)
         fit_stats = dict(fit_solution.stats or {})
         if fit_solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
-            details = fit_stats
-            details["var0"] = var0
-            reason = details.get("reason")
-            if not isinstance(reason, str) or not reason.strip():
-                reason = f"curve fit failed with status '{RESULTS[fit_solution.result]}' at var0={var0}."
+            reason = _reason_from_solution(fit_solution, var0)
             if fit_solution.result in (RESULTS.invalid_input, RESULTS.empty_subset):
                 raise ValueError(reason)
             raise RuntimeError(reason)
@@ -107,40 +162,35 @@ def run_curve_pipeline(
                 fit_stats.get("data_sign_changes"),
             )
 
-        coef = fit_solution.value
-        if coef is None:
-            raise RuntimeError(f"curve fit returned no coefficients at var0={var0}")
-        coeff_rows.append(
-            {
-                "var0": var0,
-                "coef_left": float(coef[0]),
-                "coef_right": float(coef[1]),
-                "coef_rate": float(coef[2]),
-                "coef_midpoint": float(coef[3]),
-            }
-        )
+        fit_result = fit_solution.value
+        if fit_result is None:
+            raise RuntimeError(f"curve fit returned no result at var0={var0}")
+        parameter_rows.extend(_parameter_rows(var0, fit_result))
 
         if generate_plots:
             from mut_var.plotting.curve_plots import render_curve_plot
 
             workflow_log.debug("curve pipeline: rendering plot for var0=%s", var0)
-            maf_space = jnp.linspace(float(maf.min()), float(maf.max()), 200)
-            fitted_values = curve(maf_space, coef)
-            out_path = Path(f"{input_path}_{var0:.6g}.png")
+            positive_maf = maf[maf > 0.0]
+            maf_min = float(np.min(positive_maf)) if positive_maf.size > 0 else 1e-12
+            maf_max = float(np.max(maf)) if maf.size > 0 else maf_min
+            maf_space = np.geomspace(max(maf_min, 1e-12), max(maf_max, maf_min), 200)
+            fitted_values = evaluate_curve_fit(fit_result, maf_space)
+            out_path = Path(f"{input_path}_{method}_{var0:.6g}.png")
             _ = render_curve_plot(
                 maf=maf,
                 value=value,
                 maf_space=maf_space,
                 fitted_values=fitted_values,
-                title=f"var0 = {var0}",
+                title=f"{method} | var0 = {var0}",
                 output_path=out_path,
             )
 
     workflow_log.info("curve pipeline: curve fitting completed")
     workflow_log.info("curve pipeline: preparing output dataframe")
-    coef_df = _coefficients_dataframe(coeff_rows)
-    workflow_log.info("curve pipeline: output dataframe prepared (%d rows)", coef_df.height)
-    return coef_df
+    param_df = _parameters_dataframe(parameter_rows)
+    workflow_log.info("curve pipeline: output dataframe prepared (%d rows)", param_df.height)
+    return param_df
 
 
 __all__ = ["run_curve_pipeline"]

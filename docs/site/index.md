@@ -4,9 +4,9 @@
 
 ## What Is Stable
 
-- CLI entrypoint: `mutvar` with `infer` and `curve` subcommands.
-- Pipeline APIs: `run_inference_pipeline` and `run_curve_pipeline`.
-- Numerics status contract: `mut_var.contracts.Solution.result` is the canonical success/failure signal.
+- CLI entrypoint: `mutvar` with `infer`, `curve`, and `simulate` subcommands.
+- Pipeline APIs: `run_inference_pipeline`, `run_curve_pipeline`, and `run_simulation_pipeline`.
+- Numerics status contract: `mut_var.types.Solution.result` is the canonical success/failure signal.
 
 ## Project Documentation Layout
 

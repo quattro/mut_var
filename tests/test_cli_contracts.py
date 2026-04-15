@@ -212,7 +212,7 @@ def test_cli_requires_explicit_subcommand(monkeypatch, tmp_path):
     assert_no_traceback(err)
 
 
-def test_curve_subcommand_runs_fit_only_and_writes_coefficients(monkeypatch):
+def test_curve_subcommand_runs_fit_only_and_writes_fitted_samples(monkeypatch):
     stdout, stderr = _patch_streams(monkeypatch)
 
     code = cli.run_cli(["curve", str(fixture_path("curve_small.tsv")), "--fit-only"])
@@ -220,8 +220,34 @@ def test_curve_subcommand_runs_fit_only_and_writes_coefficients(monkeypatch):
     assert code == 0
     out = stdout.getvalue()
     assert "var0" in out
-    assert "coef_left" in out
+    assert "param_name" in out
+    assert "param_value" in out
     err = stderr.getvalue()
     assert "curve: starting curve pipeline" in err
     assert "curve: writing output" in err
     assert_no_traceback(err)
+
+
+def test_curve_subcommand_passes_method_to_pipeline(monkeypatch):
+    stdout, stderr = _patch_streams(monkeypatch)
+    captured = {}
+
+    def _fake_pipeline(path, **kwargs):
+        captured["call"] = (path, kwargs["generate_plots"], kwargs["method"])
+        return pl.DataFrame(
+            {
+                "var0": [0.1],
+                "method": ["isotonic"],
+                "param_name": ["y_0"],
+                "param_value": [0.21],
+            }
+        )
+
+    monkeypatch.setattr(cli, "run_curve_pipeline", _fake_pipeline)
+
+    code = cli.run_cli(["curve", "input.tsv", "--method", "isotonic", "--fit-only"])
+
+    assert code == 0
+    assert captured["call"] == ("input.tsv", False, "isotonic")
+    assert "param_value" in stdout.getvalue()
+    assert_no_traceback(stderr.getvalue())
