@@ -138,8 +138,9 @@ def run_curve_pipeline(
 
     workflow_log.info("curve pipeline: starting curve fitting")
     grouped = df.sort(["var0", "maf"]).group_by("var0", maintain_order=True)
-    for variance, df_sub in grouped:
+    for component_idx, (variance, df_sub) in enumerate(grouped):
         var0 = _to_scalar_var(variance)
+        component_label = f"var_{component_idx}"
         workflow_log.debug("curve pipeline: fitting variance bin var0=%s", var0)
         maf = np.asarray(df_sub["maf"].to_numpy(), dtype=float)
         value = np.asarray(df_sub["value"].to_numpy(), dtype=float)
@@ -176,13 +177,13 @@ def run_curve_pipeline(
             maf_max = float(np.max(maf)) if maf.size > 0 else maf_min
             maf_space = np.geomspace(max(maf_min, 1e-12), max(maf_max, maf_min), 200)
             fitted_values = evaluate_curve_fit(fit_result, maf_space)
-            out_path = Path(f"{input_path}_{method}_{var0:.6g}.png")
+            out_path = Path(f"{input_path}_{method}_{component_label}.png")
             _ = render_curve_plot(
                 maf=maf,
                 value=value,
                 maf_space=maf_space,
                 fitted_values=fitted_values,
-                title=f"{method} | var0 = {var0}",
+                title=f"{method} | {component_label} = {var0:.6g}",
                 output_path=out_path,
             )
 
