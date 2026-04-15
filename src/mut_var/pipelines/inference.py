@@ -48,6 +48,8 @@ def _build_long_payload(models: list[Params], maf_grid: np.ndarray, af: np.ndarr
     maf_values = np.concatenate(([empirical_min_maf], maf_arr))
     names = [f"pi{idx}" for idx in range(len(models))]
 
+    # mu_k and var_k are fixed after the baseline fit; only pi varies across
+    # MAF thresholds, so models[0] is the canonical source for component means/variances.
     mu0 = np.pad(models[0].mu_k, (1, 0)).astype(float)
     var0 = np.pad(models[0].var_k, (1, 0)).astype(float)
 

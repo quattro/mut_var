@@ -148,7 +148,8 @@ def _evaluate_sigmoid_curve(maf: np.ndarray, coef: np.ndarray) -> np.ndarray:
 
 
 def _evaluate_isotonic_curve(fit: CurveFitResult, maf: np.ndarray) -> np.ndarray:
-    assert fit.support is not None
+    if fit.support is None:
+        raise ValueError("isotonic CurveFitResult is missing support array")
     support = fit.support
     indices = np.searchsorted(support, maf, side="right") - 1
     indices = np.clip(indices, 0, support.size - 1)

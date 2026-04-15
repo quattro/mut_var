@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 
@@ -241,8 +241,8 @@ def is_recoverable_result(result: RESULTS) -> bool:
 def merge_recoverable_results(*results: RESULTS) -> RESULTS:
     r"""Merge recoverable statuses, preferring `max_steps_reached` when present."""
     if any(result == RESULTS.max_steps_reached for result in results):
-        return cast(RESULTS, RESULTS.max_steps_reached)
-    return cast(RESULTS, RESULTS.successful)
+        return RESULTS.max_steps_reached
+    return RESULTS.successful
 
 
 def _make_log_fn(verbose: bool | Callable[..., Any]) -> Callable[..., None] | None:
@@ -376,7 +376,7 @@ def mix_sqp_ordered(
         if log_fn is not None:
             log_fn(step=iteration + 1, obj=float(f_new))
 
-        rel_change = abs(f_new - f)
+        rel_change = abs(f_new - f) / (1.0 + abs(f))
         x = x_new
         f = f_new
         n_iter = iteration + 1

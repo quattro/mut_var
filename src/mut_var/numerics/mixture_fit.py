@@ -61,7 +61,7 @@ def _validate_array_inputs(
     s2: Any,
     *,
     require_min_clusters: int | None = None,
-) -> tuple[np.ndarray, np.ndarray] | Solution:
+) -> Solution:
     if hasattr(beta_hat, "columns") or hasattr(s2, "columns"):
         return Solution(
             value=None,
@@ -114,16 +114,19 @@ def _validate_array_inputs(
             stats={"reason": "num_clusters must be >= 2"},
         )
 
-    return beta_hat_arr, s2_arr
+    return Solution(value=(beta_hat_arr, s2_arr), result=RESULTS.successful)
 
 
 def _build_baseline_params(beta_hat: np.ndarray, s2: np.ndarray, config: InferenceConfig) -> Params:
     std_err = np.sqrt(s2)
     min_val = float(np.min(std_err)) / 10.0
+    # max(beta^2 - s2) is a method-of-moments upper bound on the true effect variance.
     max_candidate = float(np.max(beta_hat**2 - s2))
     if max_candidate <= 0.0 or not np.isfinite(max_candidate):
+        # Fallback when all signal is noise: span 3 orders of magnitude above min_val.
         max_val = 8.0 * min_val
     else:
+        # 2× the MOM estimate gives comfortable headroom above the observed signal.
         max_val = 2.0 * np.sqrt(max_candidate)
     if not np.isfinite(max_val) or max_val <= 0.0:
         max_val = 8.0 * min_val
@@ -134,7 +137,7 @@ def _build_baseline_params(beta_hat: np.ndarray, s2: np.ndarray, config: Inferen
     return Params(pi=pi, mu_k=mu_k, var_k=var_k)
 
 
-def _validate_likelihood_matrix(L: Any, *, name: str = "likelihood matrix") -> np.ndarray | Solution:
+def _validate_likelihood_matrix(L: Any, *, name: str = "likelihood matrix") -> Solution:
     try:
         L_arr = np.asarray(L, dtype=float)
     except Exception as exc:
@@ -158,7 +161,7 @@ def _validate_likelihood_matrix(L: Any, *, name: str = "likelihood matrix") -> n
             stats={"reason": f"{name} contains non-finite values"},
         )
 
-    return _floor_zero_rows(L_arr)
+    return Solution(value=_floor_zero_rows(L_arr), result=RESULTS.successful)
 
 
 def _validate_params(params: Params, *, name: str = "params") -> Solution | None:
@@ -211,18 +214,18 @@ def prepare_fit_state(
     - Returns `RESULTS.nonfinite_objective` when the likelihood matrix is non-finite.
     """
     validated = _validate_array_inputs(beta_hat, s2, require_min_clusters=config.num_clusters)
-    if isinstance(validated, Solution):
+    if not validated.ok:
         return validated
-    beta_hat_arr, s2_arr = validated
+    beta_hat_arr, s2_arr = validated.value
 
     params = _build_baseline_params(beta_hat_arr, s2_arr, config)
     L = _build_likelihood_matrix(beta_hat_arr, s2_arr, params.mu_k, params.var_k)
     validated_likelihood = _validate_likelihood_matrix(L)
-    if isinstance(validated_likelihood, Solution):
+    if not validated_likelihood.ok:
         return validated_likelihood
 
     return Solution(
-        value=FitState(likelihood_matrix=validated_likelihood, initial_params=params),
+        value=FitState(likelihood_matrix=validated_likelihood.value, initial_params=params),
         result=RESULTS.successful,
         stats={
             "num_observations": int(beta_hat_arr.shape[0]),
@@ -264,9 +267,10 @@ def fit_baseline(
     if invalid_params is not None:
         return invalid_params
 
-    L = _validate_likelihood_matrix(state.likelihood_matrix)
-    if isinstance(L, Solution):
-        return L
+    validated_L = _validate_likelihood_matrix(state.likelihood_matrix)
+    if not validated_L.ok:
+        return validated_L
+    L = validated_L.value
 
     if L.shape[1] != state.initial_params.pi.shape[0]:
         return Solution(
@@ -334,17 +338,18 @@ def fit_refit_step(
         return invalid_params
 
     validated_likelihood = _validate_likelihood_matrix(L_sub, name="L_sub")
-    if isinstance(validated_likelihood, Solution):
+    if not validated_likelihood.ok:
         return validated_likelihood
+    L_sub_arr = validated_likelihood.value
 
-    if validated_likelihood.shape[1] != prev_params.pi.shape[0]:
+    if L_sub_arr.shape[1] != prev_params.pi.shape[0]:
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
             stats={"reason": "L_sub columns must align with prev_params"},
         )
 
-    if validated_likelihood.shape[0] == 0:
+    if L_sub_arr.shape[0] == 0:
         return Solution(
             value=None,
             result=RESULTS.empty_subset,
@@ -355,7 +360,7 @@ def fit_refit_step(
 
     try:
         pi, info = mix_sqp_ordered(
-            validated_likelihood,
+            L_sub_arr,
             A=A,
             baseline=prev_params.pi,
             max_iter=config.max_iter,
@@ -377,10 +382,10 @@ def fit_refit_step(
             "epoch_count": info["n_iter"],
             "objective": info["objective"],
             "converged": info["converged"],
-            "n_obs_used": int(validated_likelihood.shape[0]),
+            "n_obs_used": int(L_sub_arr.shape[0]),
             "likelihood_shape": (
-                int(validated_likelihood.shape[0]),
-                int(validated_likelihood.shape[1]),
+                int(L_sub_arr.shape[0]),
+                int(L_sub_arr.shape[1]),
             ),
         },
     )
