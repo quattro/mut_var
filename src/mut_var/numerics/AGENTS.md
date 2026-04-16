@@ -25,7 +25,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Simulation configs provide aligned mixture parameter lengths, valid AF generator domains, and positive SE controls.
 
 ## Dependencies
-- **Uses**: `jax`, `equinox`, `optimistix`, `jaxtyping`, `mut_var.contracts`.
+- **Uses**: `jax`, `equinox`, `optimistix`, `jaxtyping`, `mut_var.types` (for shared `RESULTS` and `Solution` contracts).
 - **Used by**: `src/mut_var/infer.py`, `src/mut_var/curve.py`, and `src/mut_var/simulate.py`.
 - **Boundary**:
   - No file I/O, CLI parsing, logging, or dataframe conversion in this domain.
@@ -35,7 +35,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 ## Key Decisions
 - Shared Optimistix adapter (`_optimistix_solver.py`) replaces legacy `_optimize.py` loops.
 - SGD/minibatch paths were removed; full-batch is the only supported optimization mode.
-- `MutVarSolver` centralizes result mapping from `optx.RESULTS` to `mut_var.contracts.RESULTS`.
+- `MutVarSolver` centralizes result mapping from `optx.RESULTS` to `mut_var.types.RESULTS`.
 - Solver-step diagnostics are surfaced through explicit Optimistix-style `verbose` controls on solver APIs.
 
 ## Invariants
