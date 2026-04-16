@@ -9,16 +9,16 @@ import mut_var
 import mut_var.cli as cli
 import mut_var.numerics as numerics
 
-from mut_var.infer import InferenceConfig, run_inference_pipeline as run_inference_dataframe_pipeline
 from mut_var.io import to_inference_arrays
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
-from mut_var.types import RESULTS, Solution
+from mut_var.pipelines.inference import run_inference_pipeline
+from mut_var.pipelines.simulation import run_simulation_pipeline
+from mut_var.types import InferenceConfig, RESULTS, SimulationPipelineConfig, Solution
 
 
-def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
-    result_df = run_inference_dataframe_pipeline(
-        sumstats_valid_df,
+def test_run_inference_pipeline_returns_dataframe(sumstats_valid_path):
+    result_df = run_inference_pipeline(
+        str(sumstats_valid_path),
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
@@ -30,40 +30,40 @@ def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
     assert result_df.columns == ["mu0", "var0", "maf", "name", "value"]
 
 
-def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
-    caplog.set_level(logging.INFO, logger="mut_var.infer")
+def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_path, caplog):
+    caplog.set_level(logging.INFO, logger="mut_var.pipelines.inference")
 
-    run_inference_dataframe_pipeline(
-        sumstats_valid_df,
+    run_inference_pipeline(
+        str(sumstats_valid_path),
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
         config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
-    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
+    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
     assert any("fitting baseline model" in message for message in messages)
     assert any("fitting refit grid" in message for message in messages)
     assert any("building numerics payload" in message for message in messages)
 
 
-def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, caplog):
-    caplog.set_level(logging.DEBUG, logger="mut_var.infer")
+def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_path, caplog):
+    caplog.set_level(logging.DEBUG, logger="mut_var.pipelines.inference")
 
-    run_inference_dataframe_pipeline(
-        sumstats_valid_df,
+    run_inference_pipeline(
+        str(sumstats_valid_path),
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
         config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
-    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
+    messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
     assert any("baseline | Step:" in message for message in messages)
     assert any("refit | Step:" in message for message in messages)
 
 
-def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_df, monkeypatch):
+def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_path, monkeypatch):
     import mut_var.numerics.mixture_fit as mixture_fit_module
 
     monkeypatch.setattr(
@@ -78,8 +78,8 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
     )
 
     with pytest.raises(RuntimeError) as err:
-        run_inference_dataframe_pipeline(
-            sumstats_valid_df,
+        run_inference_pipeline(
+            str(sumstats_valid_path),
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
@@ -89,7 +89,7 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
     assert "non-finite" in str(err.value)
 
 
-def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df, monkeypatch):
+def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_path, monkeypatch):
     import mut_var.numerics.mixture_fit as mixture_fit_module
 
     monkeypatch.setattr(
@@ -104,8 +104,8 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df,
     )
 
     with pytest.raises(ValueError) as err:
-        run_inference_dataframe_pipeline(
-            sumstats_valid_df,
+        run_inference_pipeline(
+            str(sumstats_valid_path),
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
@@ -140,7 +140,7 @@ def test_numerics_public_surface_does_not_export_profiling_helpers():
 
 
 def test_numerics_module_owns_numerics_entrypoint():
-    import mut_var.infer as infer_module
+    import mut_var.pipelines.inference as infer_module
 
     assert importlib.util.find_spec("mut_var.numerics.pipeline") is None
     assert not hasattr(infer_module, "run_numerics_inference_pipeline")
@@ -149,7 +149,7 @@ def test_numerics_module_owns_numerics_entrypoint():
     assert not hasattr(numerics, "run_inference_pipeline")
 
 
-def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeypatch):
+def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeypatch, tmp_path):
     import mut_var.numerics.mixture_fit as mixture_fit_module
 
     fake_params = mixture_fit_module.Params(
@@ -187,8 +187,11 @@ def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeyp
         )
     )
 
-    result_df = run_inference_dataframe_pipeline(
-        artifacts.observed,
+    observed_path = tmp_path / "observed.tsv"
+    artifacts.observed.write_csv(observed_path, separator="\t")
+
+    result_df = run_inference_pipeline(
+        str(observed_path),
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,

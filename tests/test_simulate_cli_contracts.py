@@ -6,7 +6,7 @@ import polars as pl
 
 import mut_var.cli as cli
 
-from mut_var.simulate import SimulationArtifacts
+from mut_var.pipelines.simulation import SimulationArtifacts
 from tests.helpers import assert_no_traceback
 
 

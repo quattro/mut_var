@@ -6,8 +6,8 @@ import pytest
 import mut_var
 
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.simulate import run_simulation_pipeline, SimulationArtifacts, SimulationPipelineConfig
-from mut_var.types import RESULTS, Solution
+from mut_var.pipelines.simulation import run_simulation_pipeline, SimulationArtifacts
+from mut_var.types import RESULTS, SimulationPipelineConfig, Solution
 
 
 def _pipeline_config(n_rows: int = 200) -> SimulationPipelineConfig:
@@ -79,7 +79,7 @@ def test_pipeline_raises_value_error_for_invalid_input_status(monkeypatch):
             state=None,
         )
 
-    monkeypatch.setattr("mut_var.simulate.simulate_mixture_data", _bad_numerics)
+    monkeypatch.setattr("mut_var.pipelines.simulation.simulate_mixture_data", _bad_numerics)
 
     with pytest.raises(ValueError, match="invalid simulation config"):
         run_simulation_pipeline(config=_pipeline_config())
@@ -94,7 +94,7 @@ def test_pipeline_raises_runtime_error_for_nonrecoverable_status(monkeypatch):
             state=None,
         )
 
-    monkeypatch.setattr("mut_var.simulate.simulate_mixture_data", _bad_numerics)
+    monkeypatch.setattr("mut_var.pipelines.simulation.simulate_mixture_data", _bad_numerics)
 
     with pytest.raises(RuntimeError, match="simulation became non-finite"):
         run_simulation_pipeline(config=_pipeline_config())

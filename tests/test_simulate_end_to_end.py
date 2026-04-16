@@ -1,11 +1,12 @@
 import polars as pl
 
-from mut_var.infer import InferenceConfig, run_inference_pipeline
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
+from mut_var.pipelines.inference import run_inference_pipeline
+from mut_var.pipelines.simulation import run_simulation_pipeline
+from mut_var.types import InferenceConfig, SimulationPipelineConfig
 
 
-def test_run_simulation_pipeline_outputs_feed_inference_pipeline_smoke():
+def test_run_simulation_pipeline_outputs_feed_inference_pipeline_smoke(tmp_path):
     artifacts = run_simulation_pipeline(
         config=SimulationPipelineConfig(
             n_rows=256,
@@ -17,8 +18,11 @@ def test_run_simulation_pipeline_outputs_feed_inference_pipeline_smoke():
         )
     )
 
+    observed_path = tmp_path / "observed.tsv"
+    artifacts.observed.write_csv(observed_path, separator="\t")
+
     result_df = run_inference_pipeline(
-        artifacts.observed,
+        str(observed_path),
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
