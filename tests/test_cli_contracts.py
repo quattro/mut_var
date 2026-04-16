@@ -149,6 +149,48 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     assert_no_traceback(err)
 
 
+def test_cli_infer_retains_phase3_compatibility_flags(monkeypatch, tmp_path):
+    stdout, stderr = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+
+    captured = {}
+
+    def _run_inference_pipeline(*_args, **kwargs):
+        captured.update(kwargs)
+        return pl.DataFrame(
+            {
+                "mu0": [0.0],
+                "var0": [0.1],
+                "maf": [0.001],
+                "name": ["pi0"],
+                "value": [1.0],
+            }
+        )
+
+    monkeypatch.setattr(cli, "run_inference_pipeline", _run_inference_pipeline)
+
+    code = cli.run_cli(
+        [
+            "infer",
+            str(valid_path),
+            "--step-size",
+            "0.25",
+            "--penalty",
+            "1.5",
+            "--seed",
+            "7",
+        ]
+    )
+
+    assert code == 0
+    assert "mu0" in stdout.getvalue()
+    assert "step_size" not in captured
+    assert "penalty" not in captured
+    assert "seed" not in captured
+    assert_no_traceback(stderr.getvalue())
+
+
 def test_cli_maps_inference_pipeline_error_status_to_exit(monkeypatch, tmp_path):
     _, stderr = _patch_streams(monkeypatch)
     valid_path = tmp_path / "sumstats.tsv"

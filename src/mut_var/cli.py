@@ -113,6 +113,24 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         default=1e-8,
         help="Weight threshold for post-fit component filtering.",
     )
+    model_group.add_argument(
+        "--step-size",
+        type=float,
+        default=0.5,
+        help="Reserved compatibility flag for Phase 3; ignored by the inference pipeline.",
+    )
+    model_group.add_argument(
+        "--penalty",
+        type=float,
+        default=1.0,
+        help="Reserved compatibility flag for Phase 3; ignored by the inference pipeline.",
+    )
+    model_group.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Reserved compatibility flag for Phase 3; ignored by the inference pipeline.",
+    )
 
     grid_group = infer.add_argument_group("MAF Grid")
     grid_group.add_argument("--lowest", type=float, default=1e-5, help="Minimum MAF grid value.")

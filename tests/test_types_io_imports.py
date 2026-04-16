@@ -32,6 +32,13 @@ def test_io_module_exposes_ingress_helpers():
     assert callable(payload_to_long_dataframe)
 
 
+def test_benchmark_module_imports_with_current_io_surface():
+    module = importlib.import_module("benchmarks.infer_runtime")
+
+    assert hasattr(module, "build_report")
+    assert hasattr(module, "main")
+
+
 @pytest.mark.parametrize(
     "module_name",
     ["mut_var." + "contracts", "mut_var." + "adapters"],

@@ -7,7 +7,8 @@ import sys
 import tempfile
 
 from pathlib import Path
-from time import sleep
+from statistics import mean
+from time import perf_counter, sleep
 from typing import Any, NamedTuple
 
 import jax.random as rdm
@@ -18,9 +19,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from mut_var.adapters.array_cache import ArrayConversionCache  # noqa: E402
-from mut_var.adapters.tabular import to_inference_arrays, to_inference_arrays_cached  # noqa: E402
-from mut_var.numerics.profiling import evaluate_performance_gate, profile_solution_runs  # noqa: E402
+from mut_var.io import dataframe_fingerprint, to_inference_arrays  # noqa: E402
 from mut_var.pipelines.inference import run_inference_pipeline  # noqa: E402
 from mut_var.types import InferenceConfig  # noqa: E402
 
@@ -43,6 +42,17 @@ class RuntimeBenchmarkConfig(NamedTuple):
     reviewer_name: str = "unassigned"
     review_date: str = "1970-01-01"
     signoff_decision: str = "pending"
+
+
+class PerformanceGateResult(NamedTuple):
+    baseline_seconds: float
+    candidate_seconds: float
+    threshold_percent: float
+    improvement_percent: float
+    passed: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self._asdict())
 
 
 def load_config(path: Path) -> RuntimeBenchmarkConfig:
@@ -73,13 +83,69 @@ def _inference_config(config: RuntimeBenchmarkConfig) -> InferenceConfig:
     )
 
 
+def _to_inference_arrays_cached(
+    df: pl.DataFrame,
+    cache: dict[str, object],
+) -> tuple[Any, bool]:
+    cache_key = dataframe_fingerprint(df, ["effect_allele_frequency", "beta", "standard_error"])
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached, True
+
+    arrays = to_inference_arrays(df, "effect_allele_frequency", "beta", "standard_error")
+    cache[cache_key] = arrays
+    return arrays, False
+
+
+def profile_solution_runs(fn, *, steady_runs: int) -> dict[str, dict[str, Any]]:
+    compile_start = perf_counter()
+    fn()
+    compile_seconds = perf_counter() - compile_start
+
+    steady_samples: list[float] = []
+    for _ in range(max(1, steady_runs)):
+        run_start = perf_counter()
+        fn()
+        steady_samples.append(perf_counter() - run_start)
+
+    return {
+        "compile": {
+            "mean_seconds": compile_seconds,
+            "runs": 1,
+        },
+        "steady_state": {
+            "mean_seconds": mean(steady_samples),
+            "runs": len(steady_samples),
+        },
+    }
+
+
+def evaluate_performance_gate(
+    *,
+    baseline_seconds: float,
+    candidate_seconds: float,
+    threshold_percent: float,
+) -> PerformanceGateResult:
+    improvement_percent = 0.0
+    if baseline_seconds > 0.0:
+        improvement_percent = 100.0 * (baseline_seconds - candidate_seconds) / baseline_seconds
+
+    return PerformanceGateResult(
+        baseline_seconds=baseline_seconds,
+        candidate_seconds=candidate_seconds,
+        threshold_percent=threshold_percent,
+        improvement_percent=improvement_percent,
+        passed=improvement_percent >= threshold_percent,
+    )
+
+
 def profile_path(
     df: pl.DataFrame,
     config: RuntimeBenchmarkConfig,
     *,
     use_cache: bool,
 ) -> tuple[dict[str, Any], dict[str, int]]:
-    cache = ArrayConversionCache()
+    cache: dict[str, object] = {}
     cache_stats = {"hits": 0, "misses": 0}
     infer_config = _inference_config(config)
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as handle:
@@ -88,13 +154,7 @@ def profile_path(
 
     def run_once():
         if use_cache:
-            arrays, hit = to_inference_arrays_cached(
-                df,
-                "effect_allele_frequency",
-                "beta",
-                "standard_error",
-                cache,
-            )
+            _arrays, hit = _to_inference_arrays_cached(df, cache)
             if hit:
                 cache_stats["hits"] += 1
             else:
