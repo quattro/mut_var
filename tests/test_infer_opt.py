@@ -7,10 +7,10 @@ import pytest
 
 import mut_var.cli as cli
 
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import baseline, refit
 from mut_var.numerics.baseline import BaselineConfig, fit_baseline
 from mut_var.numerics.refit import _fit_single_refit, RefitConfig
+from mut_var.types import RESULTS, Solution
 
 
 def test_fit_baseline_returns_structured_solution_on_valid_arrays():

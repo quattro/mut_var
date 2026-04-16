@@ -5,9 +5,9 @@ import pytest
 
 import mut_var
 
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import SimulationNumericsConfig
 from mut_var.simulate import run_simulation_pipeline, SimulationArtifacts, SimulationPipelineConfig
+from mut_var.types import RESULTS, Solution
 
 
 def _pipeline_config(n_rows: int = 200) -> SimulationPipelineConfig:

@@ -12,9 +12,9 @@ import numpy as np
 import optimistix as optx
 import polars as pl
 
-from mut_var.contracts import RESULTS, Solution
 from mut_var.curve import run_curve_pipeline
 from mut_var.numerics.curve_fit import curve, fit_curve
+from mut_var.types import RESULTS, Solution
 
 FIXTURE = Path(__file__).parent / "fixtures" / "curve_small.tsv"
 

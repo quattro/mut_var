@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics import simulate_mixture_data, SimulationNumericsConfig
+from mut_var.types import RESULTS, Solution
 
 
 def _valid_config(**overrides) -> SimulationNumericsConfig:

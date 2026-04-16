@@ -9,11 +9,11 @@ import mut_var
 import mut_var.cli as cli
 import mut_var.numerics as numerics
 
-from mut_var.adapters.tabular import to_inference_arrays
-from mut_var.contracts import RESULTS, Solution
 from mut_var.infer import InferenceConfig, run_inference_pipeline as run_inference_dataframe_pipeline
+from mut_var.io import to_inference_arrays
 from mut_var.numerics import SimulationNumericsConfig
 from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
+from mut_var.types import RESULTS, Solution
 
 
 def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
