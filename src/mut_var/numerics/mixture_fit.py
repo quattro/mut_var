@@ -5,7 +5,6 @@ from typing import Any, cast, NamedTuple
 
 import equinox as eqx
 import jax
-import jax.nn as nn
 import jax.numpy as jnp
 import optimistix as optx
 
@@ -14,7 +13,7 @@ from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
 from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
-from mut_var.numerics._rtr import baseline_rtr, ordered_rtr, RTRConfig
+from mut_var.numerics._rtr import RiemannianTrustRegion
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_nonfinite,
@@ -24,6 +23,7 @@ from mut_var.types import InferenceConfig, RESULTS, Solution
 
 _DEFAULT_STEP_SIZE: float = 0.01
 _DEFAULT_PENALTY: float = 1.0
+_DEFAULT_TAU: float = 25.0
 
 
 class Params(NamedTuple):
@@ -163,29 +163,15 @@ def fit_baseline(
     alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
 
     if config.solver == "rtr":
-        rtr_config = RTRConfig(maxiter=config.max_iter, gtol=config.tol)
-        rtr_result = baseline_rtr(pi_init, L, alpha, config=rtr_config, verbose=verbose)
-        pi_opt = rtr_result.x_opt
-        if not bool(jnp.isfinite(rtr_result.objective)):
-            result = RESULTS.nonfinite_objective
-        elif bool(rtr_result.converged):
-            result = RESULTS.successful
-        else:
-            result = RESULTS.max_steps_reached
-        return Solution(
-            value=Params(pi=pi_opt, mu_k=init_params.mu_k, var_k=init_params.var_k),
-            result=result,
-            stats={"n_steps": int(rtr_result.iterations)},
-            state=None,
+        solver: optx.AbstractMinimiser = RiemannianTrustRegion(gtol=config.tol, verbose=verbose)
+    else:
+        solver = MutVarSolver(
+            step_update=_pi_step,
+            step_size=_DEFAULT_STEP_SIZE,
+            rtol=config.tol,
+            atol=config.tol,
+            verbose=verbose,
         )
-
-    solver = MutVarSolver(
-        step_update=_pi_step,
-        step_size=_DEFAULT_STEP_SIZE,
-        rtol=config.tol,
-        atol=config.tol,
-        verbose=verbose,
-    )
     optx_solution = optx.minimise(
         fn=_neg_baseline_obj,
         solver=solver,
@@ -197,10 +183,11 @@ def fit_baseline(
     pi_opt = optx_solution.value
     objective_value = _baseline_obj_jit(pi_opt, L, alpha)
     result = _result_from_objective_value(objective_value, optx_solution.result)
+    n_steps = optx_solution.stats.get("num_steps")
     return Solution(
         value=Params(pi=pi_opt, mu_k=init_params.mu_k, var_k=init_params.var_k),
         result=result,
-        stats={"n_steps": optx_solution.stats.get("num_steps", None)},
+        stats={"n_steps": n_steps},
         state=None,
     )
 
@@ -215,8 +202,10 @@ def _refit_objective(
     mixture_pdf = jnp.clip(L_sub @ pi, min=jnp.finfo(jnp.float64).tiny)
     log_likelihood = jnp.sum(jnp.log(mixture_pdf))
     log_penalty = jnp.sum(xlogy(alpha - 1.0, pi))
-    p1 = jnp.sum(nn.relu(prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]))
-    rel_point_mass_dist = nn.relu(prev_pi[0] - pi[0])
+    c1 = prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]
+    p1 = jnp.sum(jax.nn.softplus(_DEFAULT_TAU * c1) / _DEFAULT_TAU)
+    c2 = prev_pi[0] - pi[0]
+    rel_point_mass_dist = jax.nn.softplus(_DEFAULT_TAU * c2) / _DEFAULT_TAU
     ordering_penalty = penalty * (p1 + rel_point_mass_dist)
     return -(log_likelihood - log_penalty - ordering_penalty)
 
@@ -265,37 +254,15 @@ def fit_refit_step(
     alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
 
     if config.solver == "rtr":
-        rtr_config = RTRConfig(maxiter=config.max_iter, gtol=config.tol)
-        rtr_result = ordered_rtr(
-            pi_init,
-            L_arr,
-            alpha,
-            pi_init,
-            eta_penalty=_DEFAULT_PENALTY,
-            config=rtr_config,
+        solver: optx.AbstractMinimiser = RiemannianTrustRegion(gtol=config.tol, verbose=verbose)
+    else:
+        solver = MutVarSolver(
+            step_update=_pi_step,
+            step_size=_DEFAULT_STEP_SIZE,
+            rtol=config.tol,
+            atol=config.tol,
             verbose=verbose,
         )
-        pi_opt = rtr_result.x_opt
-        if not bool(jnp.isfinite(rtr_result.objective)):
-            result = RESULTS.nonfinite_objective
-        elif bool(rtr_result.converged):
-            result = RESULTS.successful
-        else:
-            result = RESULTS.max_steps_reached
-        return Solution(
-            value=Params(pi=pi_opt, mu_k=prev_params.mu_k, var_k=prev_params.var_k),
-            result=result,
-            stats={"n_steps": int(rtr_result.iterations)},
-            state=None,
-        )
-
-    solver = MutVarSolver(
-        step_update=_pi_step,
-        step_size=_DEFAULT_STEP_SIZE,
-        rtol=config.tol,
-        atol=config.tol,
-        verbose=verbose,
-    )
     optx_solution = optx.minimise(
         fn=_neg_refit_obj,
         solver=solver,
@@ -307,10 +274,11 @@ def fit_refit_step(
     pi_opt = optx_solution.value
     objective_value = _refit_obj_jit(pi_opt, L_arr, pi_init, alpha, _DEFAULT_PENALTY)
     result = _result_from_objective_value(objective_value, optx_solution.result)
+    n_steps = optx_solution.stats.get("num_steps")
     return Solution(
         value=Params(pi=pi_opt, mu_k=prev_params.mu_k, var_k=prev_params.var_k),
         result=result,
-        stats={"n_steps": optx_solution.stats.get("num_steps", None)},
+        stats={"n_steps": n_steps},
         state=None,
     )
 

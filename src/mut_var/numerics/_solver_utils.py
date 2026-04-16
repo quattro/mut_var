@@ -29,8 +29,37 @@ def is_nonfinite(value: ArrayLike) -> bool:
     return not bool(jnp.isfinite(jnp.asarray(value)).all())
 
 
+def simplex_to_sphere(pi: Array, eps: float = 1e-12) -> Array:
+    r"""Map the simplex to the positive orthant of the unit sphere via $y = \sqrt{\pi}$."""
+    x = jnp.maximum(jnp.asarray(pi), eps)
+    x = x / jnp.sum(x)
+    return jnp.sqrt(x)
+
+
+def sphere_to_simplex(y: Array, eps: float = 1e-12) -> Array:
+    r"""Inverse chart map: $\pi = y^2$ (renormalised)."""
+    pi = jnp.asarray(y) ** 2
+    pi = jnp.maximum(pi, eps)
+    return pi / jnp.sum(pi)
+
+
+def project_tangent_sphere(y: Array, v: Array) -> Array:
+    r"""Project $v$ onto the tangent space of the unit sphere at $y$."""
+    return v - jnp.dot(y, v) * y
+
+
+def sphere_expmap(y: Array, eta: Array, eps: float = 1e-15) -> Array:
+    r"""Exponential map on the unit sphere: geodesic from $y$ in direction $\eta$."""
+    eta = project_tangent_sphere(y, eta)
+    norm_eta = jnp.linalg.norm(eta)
+    cos_theta = jnp.cos(norm_eta)
+    sin_over_norm = jnp.where(norm_eta > eps, jnp.sin(norm_eta) / norm_eta, 1.0)
+    y_new = cos_theta * y + sin_over_norm * eta
+    return y_new / jnp.linalg.norm(y_new)
+
+
 def simplex_tangent_direction(pi: Array, direction: Array) -> Array:
-    r"""Project an unconstrained direction onto the simplex tangent space."""
+    r"""Project an unconstrained direction onto the simplex Fisher-Rao tangent."""
     return pi * (direction - (direction @ pi))
 
 
@@ -39,14 +68,12 @@ def exponential_map_simplex(
     tangent_direction: Array,
     step_size: float,
 ) -> Array:
-    r"""Move simplex parameters along a tangent direction via exponential map."""
-    s = jnp.sqrt(jnp.sum(tangent_direction**2) / pi)
-    c = jnp.cos(0.5 * step_size * s)
-    s2 = jnp.sin(0.5 * step_size * s)
+    r"""Move simplex parameters along a Fisher-Rao tangent via the unit-sphere chart.
 
-    phi = jnp.sqrt(pi)
-    step = (tangent_direction / (s * phi)) * s2
-    phi_new = phi * c + step
-    pi_new = phi_new**2
-
-    return pi_new / jnp.sum(pi_new)
+    The Fisher-Rao tangent vector $v$ in simplex coordinates corresponds to
+    $\eta = v / (2y)$ in the sphere chart $y = \sqrt{\pi}$; the geodesic step
+    of length `step_size` is taken on the sphere and pulled back to the simplex.
+    """
+    y = simplex_to_sphere(pi)
+    eta = step_size * tangent_direction / (2.0 * y)
+    return sphere_to_simplex(sphere_expmap(y, eta))
