@@ -13,7 +13,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - `fit_curve(maf, value) -> Solution`
   - `simulate_mixture_data(n_rows, seed, config) -> Solution`
 - **Guarantees**:
-  - Public numerics entrypoints return `Solution` with status in `result` for non-success paths.
+  - Public numerics entrypoints return `Solution` with status in `result` for non-success paths and are JIT-safe under `jax.jit` for valid array inputs.
   - Baseline/refit optimization is full-batch and routed through Optimistix (`MutVarSolver` with backtracking line search).
   - Baseline and refit objectives are JIT-staged with `equinox.filter_jit`.
   - Optional `verbose` controls (bool/callable) emit solver diagnostics from the Optimistix-compatible solver step path.
@@ -22,6 +22,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - **Expects**:
   - Array-like inputs only (`jnp.asarray`-compatible), not dataframe objects.
   - `beta_hat` and `s2` are finite 1D arrays with equal length and strictly positive `s2`.
+  - `InferenceConfig` is treated as a static tracing input so its fields remain available as Python values under JIT.
   - `prepare_fit_state` builds a 2D likelihood matrix over observations/components; `fit_refit_step` receives one threshold-sliced likelihood matrix whose column count matches `prev_params.pi`.
   - Simulation configs provide aligned mixture parameter lengths, valid AF generator domains, and positive SE controls.
 

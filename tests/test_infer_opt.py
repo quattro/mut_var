@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -161,3 +162,21 @@ def test_fit_refit_step_invalid_input_on_likelihood_parameter_shape_mismatch(syn
     assert solution.stats == {
         "reason": "L_sub column count must match prev_params.pi length",
     }
+
+
+def test_public_numerics_entrypoints_are_jittable(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=5)
+
+    state_solution = jax.jit(prepare_fit_state)(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    baseline_solution = jax.jit(fit_baseline)(state_solution.value, config)
+    assert baseline_solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
+
+    refit_solution = jax.jit(fit_refit_step)(
+        state_solution.value.likelihood_matrix[:25, :],
+        state_solution.value.initial_params,
+        config,
+    )
+    assert refit_solution.result in (RESULTS.successful, RESULTS.max_steps_reached)

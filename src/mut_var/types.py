@@ -5,6 +5,7 @@ from typing import Any, NamedTuple, TYPE_CHECKING
 
 import equinox as eqx
 import equinox.internal as eqxi
+import jax
 
 if TYPE_CHECKING:
     from mut_var.numerics.simulate import SimulationNumericsConfig
@@ -35,6 +36,9 @@ class InferenceConfig(NamedTuple):
     max_iter: int = 100
     tol: float = 1e-3
     filter_threshold: float = 1e-8
+
+
+jax.tree_util.register_static(InferenceConfig)
 
 
 class SimulationPipelineConfig(NamedTuple):

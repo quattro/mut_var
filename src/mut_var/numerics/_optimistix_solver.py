@@ -204,8 +204,23 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
 
 def map_optimistix_result(result: optx.RESULTS) -> RESULTS:
     r"""Map Optimistix solver statuses to mut_var contract statuses."""
-    if result == optx.RESULTS.successful:
-        return cast(RESULTS, RESULTS.successful)
-    if result in (optx.RESULTS.max_steps_reached, optx.RESULTS.nonlinear_max_steps_reached):
-        return cast(RESULTS, RESULTS.max_steps_reached)
-    return cast(RESULTS, RESULTS.nonfinite_objective)
+    code = jnp.asarray(result._value, dtype=jnp.int32)
+    code = jnp.where(code == optx.RESULTS.successful._value, 0, code)
+    code = jnp.where(
+        (code == optx.RESULTS.max_steps_reached._value) | (code == optx.RESULTS.nonlinear_max_steps_reached._value),
+        1,
+        code,
+    )
+    code = jnp.where((code == 0) | (code == 1), code, 2)
+    return cast(
+        RESULTS,
+        jax.lax.switch(
+            code,
+            (
+                lambda _: RESULTS.successful,
+                lambda _: RESULTS.max_steps_reached,
+                lambda _: RESULTS.nonfinite_objective,
+            ),
+            operand=None,
+        ),
+    )
