@@ -2,21 +2,20 @@
 from mut_var.io import InferenceArrays
 from mut_var.types import InferenceConfig
 
-from .baseline import BaselineConfig, fit_baseline, Params
 from .curve_fit import curve, fit_curve
-from .refit import fit_refit_grid, RefitConfig
+from .mixture_fit import fit_baseline, fit_refit_step, FitState, Params, prepare_fit_state
 from .simulate import simulate_mixture_data, SimulationArrays, SimulationNumericsConfig
 
 __all__ = [
-    "BaselineConfig",
+    "FitState",
     "InferenceArrays",
     "InferenceConfig",
     "Params",
-    "RefitConfig",
     "curve",
     "fit_baseline",
     "fit_curve",
-    "fit_refit_grid",
+    "fit_refit_step",
+    "prepare_fit_state",
     "simulate_mixture_data",
     "SimulationArrays",
     "SimulationNumericsConfig",

@@ -1,189 +1,95 @@
-from typing import Any, cast
+from __future__ import annotations
 
 import jax.numpy as jnp
-import jax.random as rdm
-import polars as pl
+import numpy as np
 import pytest
 
-import mut_var.cli as cli
-
-from mut_var.numerics import baseline, refit
-from mut_var.numerics.baseline import BaselineConfig, fit_baseline
-from mut_var.numerics.refit import _fit_single_refit, RefitConfig
-from mut_var.types import RESULTS, Solution
+from mut_var.numerics.mixture_fit import fit_baseline, fit_refit_step, FitState, Params, prepare_fit_state
+from mut_var.types import InferenceConfig, RESULTS
 
 
-def test_fit_baseline_returns_structured_solution_on_valid_arrays():
-    beta_hat = jnp.array([0.05, -0.03, 0.01, 0.02, -0.01])
-    s2 = jnp.array([0.01, 0.015, 0.02, 0.013, 0.011])
-
-    solution = fit_baseline(
-        beta_hat=beta_hat,
-        s2=s2,
-        key=rdm.PRNGKey(0),
-        config=BaselineConfig(num_clusters=3, max_iter=5, step_size=0.5),
-    )
-
-    assert isinstance(solution, Solution)
-    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert solution.value is not None
-    assert isinstance(solution.stats, dict)
-    assert "objective" in solution.stats
+@pytest.fixture
+def synthetic_arrays():
+    rng = np.random.default_rng(42)
+    n = 100
+    beta = rng.normal(0.0, 0.05, n)
+    s2 = np.full(n, 0.01)
+    return beta, s2
 
 
-def test_fit_baseline_returns_controlled_failure_for_empty_input():
-    solution = fit_baseline(
-        beta_hat=jnp.array([]),
-        s2=jnp.array([]),
-        key=rdm.PRNGKey(0),
-        config=BaselineConfig(num_clusters=3),
-    )
+def test_prepare_fit_state_succeeds_on_valid_arrays(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3)
+
+    solution = prepare_fit_state(beta, s2, config)
+
+    assert solution.result == RESULTS.successful
+    assert isinstance(solution.value, FitState)
+    assert solution.value.likelihood_matrix.shape == (beta.shape[0], 3)
+
+
+def test_prepare_fit_state_invalid_s2(synthetic_arrays):
+    beta, _ = synthetic_arrays
+    s2 = np.array([0.01, 0.0] + [0.01] * (beta.shape[0] - 2))
+
+    solution = prepare_fit_state(beta, s2, InferenceConfig(num_clusters=3))
+
+    assert solution.result == RESULTS.invalid_input
+
+
+def test_prepare_fit_state_empty_arrays():
+    solution = prepare_fit_state([], [], InferenceConfig(num_clusters=3))
 
     assert solution.result == RESULTS.empty_subset
 
 
-def test_fit_baseline_rejects_tabular_objects():
-    df = pl.DataFrame({"beta": [0.1], "s2": [0.01]})
+def test_fit_baseline_converges_pi_sums_to_one(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=10)
 
-    solution = fit_baseline(
-        beta_hat=df,
-        s2=df,
-        key=rdm.PRNGKey(0),
-        config=BaselineConfig(num_clusters=3),
-    )
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
 
-    assert solution.result == RESULTS.invalid_input
-    assert "arrays" in solution.stats["reason"]
-
-
-def test_cli_no_longer_owns_optimizer_internals():
-    assert not hasattr(cli, "baseline_objective")
-    assert not hasattr(cli, "fit_baseline_mixture")
-
-
-def test_fit_baseline_rejects_nonfinite_inputs():
-    solution = fit_baseline(
-        beta_hat=jnp.array([0.1, jnp.nan]),
-        s2=jnp.array([0.01, 0.02]),
-        key=rdm.PRNGKey(0),
-        config=BaselineConfig(num_clusters=3),
-    )
-
-    assert solution.result == RESULTS.invalid_input
-
-
-def test_algorithm_scope_keeps_original_objective_functions():
-    assert callable(baseline.baseline_objective)
-    assert callable(refit.penalized_objective)
-
-
-def test_fit_single_refit_returns_controlled_failure_for_nonfinite_objective():
-    init = baseline.Params(
-        pi=jnp.array([0.7, 0.3]),
-        mu_k=jnp.array([0.0]),
-        var_k=jnp.array([1.0]),
-    )
-    likelihoods = jnp.array([[0.2, 0.8], [0.4, 0.6]], dtype=jnp.float64)
-    weights = jnp.array([1.0, 1.0], dtype=jnp.float64)
-
-    def _nonfinite_obj(*_args, **_kwargs):
-        return jnp.nan
-
-    solution = _fit_single_refit(
-        likelihoods=likelihoods,
-        weights=weights,
-        init=init,
-        config=RefitConfig(max_iter=1, step_size=0.75, tol=1e-8),
-        obj=_nonfinite_obj,
-        verbose=False,
-    )
-
-    assert solution.result == RESULTS.nonfinite_objective
-
-
-def test_fit_baseline_uses_optimistix_solver_path_by_default():
-    beta_hat = jnp.array([0.05, -0.03, 0.01, 0.02, -0.01])
-    s2 = jnp.array([0.01, 0.015, 0.02, 0.013, 0.011])
-
-    solution = fit_baseline(
-        beta_hat=beta_hat,
-        s2=s2,
-        key=rdm.PRNGKey(0),
-        config=BaselineConfig(
-            num_clusters=3,
-            max_iter=5,
-            step_size=0.5,
-        ),
-    )
+    solution = fit_baseline(state_solution.value, config)
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert solution.value is not None
+    assert isinstance(solution.value, Params)
+    assert jnp.isclose(jnp.sum(solution.value.pi), 1.0)
+    assert jnp.allclose(solution.value.mu_k, state_solution.value.initial_params.mu_k)
+    assert jnp.allclose(solution.value.var_k, state_solution.value.initial_params.var_k)
 
 
-def test_baseline_config_no_longer_exposes_solver_backend_knob():
-    with pytest.raises(TypeError):
-        cast(Any, BaselineConfig)(num_clusters=3, solver_backend="optimistix")
+def test_fit_baseline_max_steps_reached_on_max_iter_one(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=1)
+
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    solution = fit_baseline(state_solution.value, config)
+
+    assert solution.result == RESULTS.max_steps_reached
+    assert isinstance(solution.value, Params)
 
 
-def test_fit_refit_grid_uses_optimistix_solver_path_by_default():
-    beta_hat = jnp.array([0.05, -0.03, 0.01, 0.02, -0.01])
-    s2 = jnp.array([0.01, 0.015, 0.02, 0.013, 0.011])
-    maf_masks = jnp.array([[True, True, True, True, True]], dtype=bool)
-    init = baseline.Params(
-        pi=jnp.array([0.8, 0.2]),
-        mu_k=jnp.array([0.0]),
-        var_k=jnp.array([1.0]),
+def test_fit_refit_step_pi_sums_to_one_and_mu_var_unchanged(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=10)
+
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    prev_params = Params(
+        pi=jnp.asarray([0.8, 0.15, 0.05], dtype=jnp.float64),
+        mu_k=state_solution.value.initial_params.mu_k,
+        var_k=state_solution.value.initial_params.var_k,
     )
+    l_sub = state_solution.value.likelihood_matrix[:25, :]
 
-    solution = refit.fit_refit_grid(
-        beta_hat=beta_hat,
-        s2=s2,
-        maf_masks=maf_masks,
-        init=init,
-        config=RefitConfig(max_iter=5, step_size=0.5),
-    )
+    solution = fit_refit_step(l_sub, prev_params, config)
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert len(solution.value) == 2
-
-
-def test_refit_config_no_longer_exposes_solver_backend_knob():
-    with pytest.raises(TypeError):
-        cast(Any, RefitConfig)(solver_backend="optimistix")
-
-
-def test_fit_refit_grid_computes_likelihoods_once(monkeypatch):
-    beta_hat = jnp.array([0.05, -0.03, 0.01, 0.02, -0.01])
-    s2 = jnp.array([0.01, 0.015, 0.02, 0.013, 0.011])
-    maf_masks = jnp.array(
-        [
-            [True, True, True, True, True],
-            [True, True, False, True, False],
-            [True, False, False, True, False],
-        ],
-        dtype=bool,
-    )
-    init = baseline.Params(
-        pi=jnp.array([0.8, 0.2]),
-        mu_k=jnp.array([0.0]),
-        var_k=jnp.array([1.0]),
-    )
-    call_count = 0
-    original_pdf = refit.pdf
-
-    def _counting_pdf(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return original_pdf(*args, **kwargs)
-
-    monkeypatch.setattr(refit, "pdf", _counting_pdf)
-    solution = refit.fit_refit_grid(
-        beta_hat=beta_hat,
-        s2=s2,
-        maf_masks=maf_masks,
-        init=init,
-        config=RefitConfig(max_iter=5, step_size=0.5),
-    )
-
-    assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert call_count == 1
+    assert isinstance(solution.value, Params)
+    assert jnp.isclose(jnp.sum(solution.value.pi), 1.0)
+    assert jnp.allclose(solution.value.mu_k, prev_params.mu_k)
+    assert jnp.allclose(solution.value.var_k, prev_params.var_k)

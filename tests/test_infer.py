@@ -19,11 +19,10 @@ from mut_var.types import RESULTS, Solution
 def test_run_inference_pipeline_returns_dataframe(sumstats_valid_df):
     result_df = run_inference_dataframe_pipeline(
         sumstats_valid_df,
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     assert isinstance(result_df, pl.DataFrame)
@@ -36,11 +35,10 @@ def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_df, caplog):
 
     run_inference_dataframe_pipeline(
         sumstats_valid_df,
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
@@ -54,11 +52,10 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, ca
 
     run_inference_dataframe_pipeline(
         sumstats_valid_df,
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=3, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=3, max_iter=5),
     )
 
     messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.infer"]
@@ -67,12 +64,12 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_df, ca
 
 
 def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_df, monkeypatch):
-    import mut_var.numerics.baseline as baseline_module
+    import mut_var.numerics.mixture_fit as mixture_fit_module
 
     monkeypatch.setattr(
-        baseline_module,
+        mixture_fit_module,
         "fit_baseline",
-        lambda **_kwargs: Solution(
+        lambda *_args, **_kwargs: Solution(
             value=None,
             result=RESULTS.nonfinite_objective,
             stats={"reason": "objective became non-finite"},
@@ -83,40 +80,22 @@ def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_vali
     with pytest.raises(RuntimeError) as err:
         run_inference_dataframe_pipeline(
             sumstats_valid_df,
-            seed=0,
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
-            config=InferenceConfig(num_clusters=3, max_iter=2, step_size=0.5),
+            config=InferenceConfig(num_clusters=3, max_iter=2),
         )
 
     assert "non-finite" in str(err.value)
 
 
 def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df, monkeypatch):
-    import mut_var.numerics.baseline as baseline_module
-    import mut_var.numerics.refit as refit_module
-
-    baseline_params = baseline_module.Params(
-        pi=jnp.asarray([1.0], dtype=jnp.float64),
-        mu_k=jnp.asarray([], dtype=jnp.float64),
-        var_k=jnp.asarray([], dtype=jnp.float64),
-    )
+    import mut_var.numerics.mixture_fit as mixture_fit_module
 
     monkeypatch.setattr(
-        baseline_module,
-        "fit_baseline",
-        lambda **_kwargs: Solution(
-            value=baseline_params,
-            result=RESULTS.successful,
-            stats={},
-            state=None,
-        ),
-    )
-    monkeypatch.setattr(
-        refit_module,
-        "fit_refit_grid",
-        lambda **_kwargs: Solution(
+        mixture_fit_module,
+        "fit_refit_step",
+        lambda *_args, **_kwargs: Solution(
             value=None,
             result=RESULTS.empty_subset,
             stats={"reason": "empty subset"},
@@ -127,11 +106,10 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df,
     with pytest.raises(ValueError) as err:
         run_inference_dataframe_pipeline(
             sumstats_valid_df,
-            seed=0,
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
-            config=InferenceConfig(num_clusters=1, max_iter=2, step_size=0.5),
+            config=InferenceConfig(num_clusters=2, max_iter=2),
         )
 
     assert "empty subset" in str(err.value)
@@ -172,32 +150,31 @@ def test_numerics_module_owns_numerics_entrypoint():
 
 
 def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeypatch):
-    import mut_var.numerics.baseline as baseline_module
-    import mut_var.numerics.refit as refit_module
+    import mut_var.numerics.mixture_fit as mixture_fit_module
 
-    baseline_params = baseline_module.Params(
+    fake_params = mixture_fit_module.Params(
         pi=jnp.asarray([0.9, 0.1], dtype=jnp.float64),
         mu_k=jnp.asarray([0.0], dtype=jnp.float64),
         var_k=jnp.asarray([1e-4], dtype=jnp.float64),
     )
 
     monkeypatch.setattr(
-        baseline_module,
+        mixture_fit_module,
         "fit_baseline",
-        lambda **_kwargs: Solution(
-            value=baseline_params,
+        lambda *_args, **_kwargs: Solution(
+            value=fake_params,
             result=RESULTS.successful,
-            stats={"objective": 0.0},
+            stats={"n_steps": 1},
             state=None,
         ),
     )
     monkeypatch.setattr(
-        refit_module,
-        "fit_refit_grid",
-        lambda **_kwargs: Solution(
-            value=[baseline_params, baseline_params, baseline_params],
+        mixture_fit_module,
+        "fit_refit_step",
+        lambda *_args, **_kwargs: Solution(
+            value=fake_params,
             result=RESULTS.successful,
-            stats={"num_models": 3},
+            stats={"n_steps": 1},
             state=None,
         ),
     )
@@ -212,11 +189,10 @@ def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeyp
 
     result_df = run_inference_dataframe_pipeline(
         artifacts.observed,
-        seed=0,
         lowest=1e-3,
         highest=5e-3,
         num_breaks=2,
-        config=InferenceConfig(num_clusters=2, max_iter=5, step_size=0.5),
+        config=InferenceConfig(num_clusters=2, max_iter=5),
     )
 
     assert isinstance(result_df, pl.DataFrame)
