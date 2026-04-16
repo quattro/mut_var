@@ -42,7 +42,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 
 ## Invariants
 - `Params.pi` remains simplex-normalized after each Riemannian update.
-- `fit_refit_grid` returns one model per threshold plus the initial model on successful/recoverable runs.
+- `fit_refit_step` returns the next refit model for one thresholded likelihood subset; callers compose these stepwise results across thresholds when building the refit sequence.
 - Solver outputs always report one canonical status: `successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, or `max_steps_reached`.
 - Successful simulation outputs have finite arrays with strictly positive `sigma2`.
 - `simulate_mixture_data` is reproducible for a fixed `(seed, config, n_rows)` tuple.
