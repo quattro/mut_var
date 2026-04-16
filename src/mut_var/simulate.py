@@ -5,23 +5,17 @@ import logging
 
 # pattern: Mixed (unavoidable)
 # Reason: this module combines pure dataframe shaping helpers with workflow orchestration/logging.
-from typing import NamedTuple
+from typing import NamedTuple, TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
-from mut_var.contracts import RESULTS, Solution
-from mut_var.numerics import simulate_mixture_data, SimulationArrays, SimulationNumericsConfig
+from mut_var.numerics import simulate_mixture_data, SimulationArrays
+from mut_var.types import RESULTS, SimulationPipelineConfig, Solution
 
-
-class SimulationPipelineConfig(NamedTuple):
-    n_rows: int
-    seed: int = 0
-    numerics: SimulationNumericsConfig = SimulationNumericsConfig(
-        weights=(0.95, 0.05),
-        log_var_scales=(-8.0, -5.5),
-    )
+if TYPE_CHECKING:
+    from mut_var.numerics.simulate import SimulationNumericsConfig
 
 
 class SimulationArtifacts(NamedTuple):
@@ -80,7 +74,11 @@ def _observed_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
     )
 
 
-def _metadata_dataframe(arrays: SimulationArrays, config: SimulationPipelineConfig) -> pl.DataFrame:
+def _metadata_dataframe(
+    arrays: SimulationArrays,
+    config: SimulationPipelineConfig,
+    numerics: SimulationNumericsConfig,
+) -> pl.DataFrame:
     truth_df = _truth_dataframe(arrays)
     with_deciles = truth_df.with_columns(
         (
@@ -105,9 +103,9 @@ def _metadata_dataframe(arrays: SimulationArrays, config: SimulationPipelineConf
         [
             pl.lit(int(config.seed)).alias("seed"),
             pl.lit(int(config.n_rows)).alias("n_rows"),
-            pl.lit(int(len(config.numerics.weights))).alias("num_components"),
-            pl.lit(str(config.numerics.variance_link)).alias("variance_link"),
-            pl.lit(float(config.numerics.theta)).alias("theta"),
+            pl.lit(int(len(numerics.weights))).alias("num_components"),
+            pl.lit(str(numerics.variance_link)).alias("variance_link"),
+            pl.lit(float(numerics.theta)).alias("theta"),
         ]
     ).select(
         [
@@ -147,11 +145,19 @@ def run_simulation_pipeline(
     workflow_log = logging.getLogger(__name__) if log is None else log
     workflow_log.info("simulation pipeline: validating config")
 
+    from mut_var.numerics.simulate import SimulationNumericsConfig
+
+    effective_numerics = (
+        config.numerics
+        if config.numerics is not None
+        else SimulationNumericsConfig(weights=(0.95, 0.05), log_var_scales=(-8.0, -5.5))
+    )
+
     workflow_log.info("simulation pipeline: running numerics")
     solution = simulate_mixture_data(
         n_rows=config.n_rows,
         seed=config.seed,
-        config=config.numerics,
+        config=effective_numerics,
     )
 
     if solution.result != RESULTS.successful:
@@ -167,7 +173,7 @@ def run_simulation_pipeline(
     arrays = solution.value
     truth_df = _truth_dataframe(arrays)
     observed_df = _observed_dataframe(arrays)
-    metadata_df = _metadata_dataframe(arrays, config)
+    metadata_df = _metadata_dataframe(arrays, config, effective_numerics)
     return SimulationArtifacts(
         truth=truth_df,
         observed=observed_df,

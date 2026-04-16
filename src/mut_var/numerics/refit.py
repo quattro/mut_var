@@ -13,7 +13,6 @@ from jax.scipy.special import xlogy
 from jax.scipy.stats import norm
 from jaxtyping import ArrayLike
 
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
@@ -21,6 +20,7 @@ from mut_var.numerics._solver_utils import (
     simplex_tangent_direction,
 )
 from mut_var.numerics.baseline import Params
+from mut_var.types import RESULTS, Solution
 
 
 class RefitConfig(NamedTuple):

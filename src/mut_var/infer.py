@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 # pattern: Mixed (unavoidable)
 # Reason: preserves compatibility while consolidating numerics and orchestration entrypoints.
-from typing import Any, Mapping, NamedTuple, TYPE_CHECKING
+from typing import Any, Mapping, TYPE_CHECKING
 
 import jax.debug as jdb
 import jax.numpy as jnp
@@ -15,49 +15,20 @@ import polars as pl
 
 from jaxtyping import ArrayLike
 
-from mut_var.contracts import RESULTS, Solution
-from mut_var.io import validate_maf_grid, validate_numeric_columns, validate_required_columns, validate_sumstats_domain
+from mut_var.io import (
+    build_maf_masks,
+    InferenceArrays,
+    payload_to_long_dataframe,
+    to_inference_arrays,
+    validate_maf_grid,
+    validate_numeric_columns,
+    validate_required_columns,
+    validate_sumstats_domain,
+)
+from mut_var.types import InferenceConfig, RESULTS, Solution
 
 if TYPE_CHECKING:
-    from mut_var.numerics.baseline import BaselineConfig, Params
-    from mut_var.numerics.refit import RefitConfig
-
-
-class InferenceArrays(NamedTuple):
-    af: ArrayLike
-    beta_hat: ArrayLike
-    s2: ArrayLike
-
-
-class InferenceConfig(NamedTuple):
-    num_clusters: int
-    max_iter: int = 100
-    tol: float = 1e-3
-    step_size: float = 0.01
-    filter_threshold: float = 1e-8
-    penalty: float = 1.0
-
-    def to_baseline_config(self) -> BaselineConfig:
-        r"""Convert pipeline controls to baseline-stage solver config."""
-        from mut_var.numerics.baseline import BaselineConfig
-
-        return BaselineConfig(
-            num_clusters=self.num_clusters,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            step_size=self.step_size,
-        )
-
-    def to_refit_config(self) -> RefitConfig:
-        r"""Convert pipeline controls to refit-stage solver config."""
-        from mut_var.numerics.refit import RefitConfig
-
-        return RefitConfig(
-            penalty=self.penalty,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            step_size=self.step_size,
-        )
+    from mut_var.numerics.baseline import Params
 
 
 def _filter_components(params: Params, threshold: float) -> Params:
@@ -188,7 +159,6 @@ def run_inference_pipeline(
     - `ValueError`: Boundary validation failure or invalid numerics result.
     - `RuntimeError`: Non-recoverable numerics failure.
     """
-    from mut_var.adapters.tabular import build_maf_masks, payload_to_long_dataframe, to_inference_arrays
     from mut_var.numerics._solver_utils import is_recoverable_result, merge_recoverable_results
     from mut_var.numerics.baseline import fit_baseline
     from mut_var.numerics.refit import fit_refit_grid

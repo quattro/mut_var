@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 from jaxtyping import Array, ArrayLike
 
-from mut_var.contracts import RESULTS
+from mut_var.types import RESULTS
 
 RECOVERABLE_RESULTS = (RESULTS.successful, RESULTS.max_steps_reached)
 

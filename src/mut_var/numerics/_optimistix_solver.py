@@ -20,7 +20,7 @@ from optimistix._misc import (
     tree_where,
 )
 
-from mut_var.contracts import RESULTS
+from mut_var.types import RESULTS
 
 Y = TypeVar("Y")
 

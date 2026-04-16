@@ -13,13 +13,13 @@ from jax.scipy.special import logsumexp, xlogy
 from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
-from mut_var.contracts import RESULTS, Solution
 from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_nonfinite,
     simplex_tangent_direction,
 )
+from mut_var.types import RESULTS, Solution
 
 
 class Params(NamedTuple):

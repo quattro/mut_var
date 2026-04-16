@@ -1,4 +1,6 @@
-from mut_var.infer import InferenceArrays, InferenceConfig
+# pattern: Imperative Shell
+from mut_var.io import InferenceArrays
+from mut_var.types import InferenceConfig
 
 from .baseline import BaselineConfig, fit_baseline, Params
 from .curve_fit import curve, fit_curve

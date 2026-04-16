@@ -8,7 +8,7 @@ import jax.random as rdm
 
 from jaxtyping import ArrayLike
 
-from mut_var.contracts import RESULTS, Solution
+from mut_var.types import RESULTS, Solution
 
 VarianceLink = Literal["none", "maf_power", "maf_power_shifted"]
 AfModel = Literal["uniform", "beta"]

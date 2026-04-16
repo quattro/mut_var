@@ -8,8 +8,8 @@ from pathlib import Path
 import jax.numpy as jnp
 import polars as pl
 
-from mut_var.contracts import RESULTS
 from mut_var.numerics.curve_fit import curve, fit_curve
+from mut_var.types import RESULTS
 
 
 def _to_scalar_var(variance) -> float:
