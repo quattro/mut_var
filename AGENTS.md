@@ -1,6 +1,6 @@
 # mut_var
 
-Last verified: 2026-02-26
+Last verified: 2026-04-15
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.
@@ -10,7 +10,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - CLI entrypoint: `mutvar` (`infer`, `curve`, `simulate`)
   - Package-root pipeline APIs: `run_inference_pipeline`, `run_curve_pipeline`, `run_simulation_pipeline`
   - Numerics APIs: `mut_var.numerics.fit_baseline`, `mut_var.numerics.fit_curve`, `mut_var.numerics.fit_refit_grid`, `mut_var.numerics.simulate_mixture_data`
-  - Contract types: `mut_var.contracts.RESULTS`, `mut_var.contracts.Solution`, `mut_var.numerics.InferenceArrays`, `mut_var.numerics.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.numerics.SimulationNumericsConfig`, `mut_var.SimulationPipelineConfig`, `mut_var.SimulationArtifacts`
+  - Contract types: `mut_var.types.RESULTS`, `mut_var.types.Solution`, `mut_var.io.InferenceArrays`, `mut_var.types.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.numerics.SimulationNumericsConfig`, `mut_var.SimulationPipelineConfig`, `mut_var.SimulationArtifacts`
 - **Guarantees**:
   - Boundary validation happens at ingress before numerics execute.
   - Pipeline/orchestration APIs accept validated dataframe or array-like inputs and return dataframe outputs for downstream writing/processing.
@@ -35,7 +35,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - `mut_var.cli` is imperative-shell orchestration; do not treat it as numerics API surface.
   - Canonical numerics implementations live under `src/mut_var/numerics`.
   - Numerics-specific contracts are documented in `src/mut_var/numerics/AGENTS.md`.
-  - Prefer package-root imports over reaching into adapter internals.
+  - Prefer package-root imports and `mut_var.io` over reaching into deleted adapter internals.
 
 ## Key Decisions
 - Public API is intentionally centralized in `src/mut_var/__init__.py` to keep import contracts stable.

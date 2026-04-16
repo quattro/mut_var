@@ -12,6 +12,8 @@ def test_types_module_exposes_shared_contracts():
     assert Solution is not None
     assert InferenceConfig is not None
     assert SimulationPipelineConfig is not None
+    assert not hasattr(InferenceConfig, "to_baseline_config")
+    assert not hasattr(InferenceConfig, "to_refit_config")
 
 
 def test_io_module_exposes_ingress_helpers():

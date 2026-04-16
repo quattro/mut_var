@@ -159,9 +159,7 @@ def run_inference_pipeline(
     - `ValueError`: Boundary validation failure or invalid numerics result.
     - `RuntimeError`: Non-recoverable numerics failure.
     """
-    from mut_var.numerics._solver_utils import is_recoverable_result, merge_recoverable_results
-    from mut_var.numerics.baseline import fit_baseline
-    from mut_var.numerics.refit import fit_refit_grid
+    from mut_var.numerics import _solver_utils, baseline as baseline_module, refit as refit_module
 
     workflow_log = logging.getLogger(__name__) if log is None else log
 
@@ -184,14 +182,25 @@ def run_inference_pipeline(
     maf_grid = jnp.exp(jnp.linspace(jnp.log(lowest), jnp.log(highest), num_breaks))
     maf_masks = build_maf_masks(arrays.af, maf_grid)
     inference_config = config if config is not None else InferenceConfig(num_clusters=30)
+    baseline_config = baseline_module.BaselineConfig(
+        num_clusters=inference_config.num_clusters,
+        max_iter=inference_config.max_iter,
+        tol=inference_config.tol,
+        step_size=inference_config.step_size,
+    )
+    refit_config = refit_module.RefitConfig(
+        penalty=inference_config.penalty,
+        max_iter=inference_config.max_iter,
+        tol=inference_config.tol,
+        step_size=inference_config.step_size,
+    )
 
     workflow_log.info("inference pipeline: starting numerics")
     beta_hat = jnp.asarray(arrays.beta_hat)
     s2 = jnp.asarray(arrays.s2)
 
-    baseline_config = inference_config.to_baseline_config()
     workflow_log.info(f"inference pipeline: fitting baseline model with config {baseline_config}")
-    baseline_solution = fit_baseline(
+    baseline_solution = baseline_module.fit_baseline(
         beta_hat=beta_hat,
         s2=s2,
         key=rdm.PRNGKey(seed),
@@ -200,24 +209,24 @@ def run_inference_pipeline(
     )
     workflow_log.info("inference pipeline: baseline fit completed with result '%s'", RESULTS[baseline_solution.result])
 
-    if not is_recoverable_result(baseline_solution.result):
+    if not _solver_utils.is_recoverable_result(baseline_solution.result):
         solution = baseline_solution
     else:
         workflow_log.info("inference pipeline: filtering baseline components")
         filtered = _filter_components(baseline_solution.value, inference_config.filter_threshold)
 
         workflow_log.info("inference pipeline: fitting refit grid")
-        refit_solution = fit_refit_grid(
+        refit_solution = refit_module.fit_refit_grid(
             beta_hat=beta_hat,
             s2=s2,
             maf_masks=maf_masks,
             init=filtered,
-            config=inference_config.to_refit_config(),
+            config=refit_config,
             verbose=_solver_debug_callback(workflow_log, "refit"),
         )
         workflow_log.info("inference pipeline: refit grid completed with result '%s'", RESULTS[refit_solution.result])
 
-        if not is_recoverable_result(refit_solution.result):
+        if not _solver_utils.is_recoverable_result(refit_solution.result):
             solution = refit_solution
         else:
             workflow_log.info("inference pipeline: building numerics payload")
@@ -225,7 +234,7 @@ def run_inference_pipeline(
             numerics_payload = _build_long_payload(models, maf_grid=maf_grid, af=arrays.af)
             solution = Solution(
                 value=numerics_payload,
-                result=merge_recoverable_results(baseline_solution.result, refit_solution.result),
+                result=_solver_utils.merge_recoverable_results(baseline_solution.result, refit_solution.result),
                 stats={
                     "num_models": len(models),
                     "num_components": int(models[0].pi.shape[0]),
