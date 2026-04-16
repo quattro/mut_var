@@ -1,14 +1,15 @@
 # Numerics Domain
 
-Last verified: 2026-02-26
+Last verified: 2026-04-15
 
 ## Purpose
 Provide array-only numerical kernels for mutation-variance estimation with explicit solver status channels that remain stable under JAX transforms.
 
 ## Contracts
 - **Exposes**:
-  - `fit_baseline(beta_hat, s2, key, config, verbose=False) -> Solution`
-  - `fit_refit_grid(beta_hat, s2, maf_masks, init, config, verbose=False) -> Solution`
+  - `prepare_fit_state(beta_hat, s2, config) -> Solution`
+  - `fit_baseline(state: FitState, config: InferenceConfig, verbose=False) -> Solution`
+  - `fit_refit_step(L_sub: Array, prev_params: Params, config: InferenceConfig, verbose=False) -> Solution`
   - `fit_curve(maf, value) -> Solution`
   - `simulate_mixture_data(n_rows, seed, config) -> Solution`
 - **Guarantees**:
@@ -26,7 +27,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 
 ## Dependencies
 - **Uses**: `jax`, `equinox`, `optimistix`, `jaxtyping`, `mut_var.types` (for shared `RESULTS` and `Solution` contracts).
-- **Used by**: `src/mut_var/infer.py`, `src/mut_var/curve.py`, and `src/mut_var/simulate.py`.
+- **Used by**: `src/mut_var/pipelines/`, package-root pipeline exports, and CLI orchestration.
 - **Boundary**:
   - No file I/O, CLI parsing, logging, or dataframe conversion in this domain.
   - User-facing validation belongs at higher-level adapters before numerics execution.
@@ -36,6 +37,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - Shared Optimistix adapter (`_optimistix_solver.py`) replaces legacy `_optimize.py` loops.
 - SGD/minibatch paths were removed; full-batch is the only supported optimization mode.
 - `MutVarSolver` centralizes result mapping from `optx.RESULTS` to `mut_var.types.RESULTS`.
+- `baseline.py` and `refit.py` were merged into `mixture_fit.py`; the likelihood matrix is pre-computed once in `prepare_fit_state`.
 - Solver-step diagnostics are surfaced through explicit Optimistix-style `verbose` controls on solver APIs.
 
 ## Invariants
@@ -46,8 +48,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `simulate_mixture_data` is reproducible for a fixed `(seed, config, n_rows)` tuple.
 
 ## Key Files
-- `src/mut_var/numerics/baseline.py` - baseline mixture fitting objective and solver wiring.
-- `src/mut_var/numerics/refit.py` - grid refit objective and sequential threshold updates.
+- `src/mut_var/numerics/mixture_fit.py` - pi-only solver: `prepare_fit_state`, `fit_baseline`, `fit_refit_step`, `FitState`, `Params`.
 - `src/mut_var/numerics/_optimistix_solver.py` - shared Optimistix descent/solver adapters.
 - `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.

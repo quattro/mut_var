@@ -13,7 +13,8 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Contract types: `mut_var.types.RESULTS`, `mut_var.types.Solution`, `mut_var.io.InferenceArrays`, `mut_var.types.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.numerics.SimulationNumericsConfig`, `mut_var.SimulationPipelineConfig`, `mut_var.SimulationArtifacts`
 - **Guarantees**:
   - Boundary validation happens at ingress before numerics execute.
-  - Pipeline/orchestration APIs accept validated dataframe or array-like inputs and return dataframe outputs for downstream writing/processing.
+  - `run_inference_pipeline` accepts a file path string and loads inference arrays internally through `mut_var.io.load_inference_arrays`; the intermediate DataFrame is not retained alongside JAX arrays.
+  - Pipeline/orchestration APIs live in `mut_var.pipelines` and return dataframe outputs for downstream writing/processing.
   - Numerics APIs return `Solution` objects and use `Solution.result` as the canonical status signal.
   - Contracts above numerics do not expose `Solution`; they normalize outputs to tabular/dataframe forms.
   - Simulation pipeline APIs return dataframe artifacts (`truth`, `observed`, `metadata`) and keep file writes in CLI/orchestration shells.
@@ -34,8 +35,9 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - **Boundary**:
   - `mut_var.cli` is imperative-shell orchestration; do not treat it as numerics API surface.
   - Canonical numerics implementations live under `src/mut_var/numerics`.
+  - Pipeline APIs are implemented in `mut_var.pipelines`; package-root exports re-export those orchestration entrypoints.
   - Numerics-specific contracts are documented in `src/mut_var/numerics/AGENTS.md`.
-  - Prefer package-root imports and `mut_var.io` over reaching into deleted adapter internals.
+  - Prefer package-root imports and `mut_var.io` over reaching into lower-level ingestion or numerics internals.
 
 ## Key Decisions
 - Public API is intentionally centralized in `src/mut_var/__init__.py` to keep import contracts stable.
@@ -43,6 +45,8 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - Numerics optimization is standardized on Optimistix with custom manifold descent modules; legacy native loop orchestration was removed.
 - Full-batch-only optimization is the canonical contract; `batch_size` controls were removed from public inference/baseline configs and CLI.
 - Contract enums/modules use Equinox primitives (`equinox.internal.Enumeration`, `equinox.Module`) instead of stdlib `Enum`/`dataclass`.
+- `contracts.py` was renamed to `types.py`; `adapters/` was deleted; `io.py` owns ingress normalization.
+- Pipeline orchestration lives in `src/mut_var/pipelines/`.
 - Pipeline-facing APIs normalize successful outputs to `polars.DataFrame`.
 - Plot generation is isolated from curve-fitting numerics so fit outputs remain unchanged by plotting.
 
@@ -58,7 +62,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 
 ## Commands
 - `pip install -e .`
-- `mutvar infer <sumstats.tsv> [options]`
+- `mutvar infer <sumstats.tsv> -k 10 -m 50 -f 1e-6 --lowest 1e-5 --highest 1e-2 --num-breaks 5`
 - `mutvar curve <mutvar-output.tsv> [--fit-only]`
 - `mutvar simulate --output-prefix <prefix> [options]`
 - `ruff check src/mut_var tests`
