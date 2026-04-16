@@ -98,11 +98,24 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         help="Maximum optimizer iterations.",
     )
     model_group.add_argument(
+        "--tol",
+        type=float,
+        default=1e-3,
+        help="Gradient convergence tolerance for the optimizer.",
+    )
+    model_group.add_argument(
         "-f",
         "--filter",
         type=float,
         default=1e-8,
         help="Weight threshold for post-fit component filtering.",
+    )
+    model_group.add_argument(
+        "--solver",
+        type=str,
+        choices=("optimistix", "rtr"),
+        default="optimistix",
+        help="Optimization solver: first-order Riemannian GD (optimistix) or second-order RTR (rtr).",
     )
 
     grid_group = infer.add_argument_group("MAF Grid")
@@ -307,7 +320,9 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             config=InferenceConfig(
                 num_clusters=args.num_clusters,
                 max_iter=args.max_iter,
+                tol=args.tol,
                 filter_threshold=args.filter,
+                solver=args.solver,
             ),
             log=log,
         )
