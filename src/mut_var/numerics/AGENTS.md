@@ -22,7 +22,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - **Expects**:
   - Array-like inputs only (`jnp.asarray`-compatible), not dataframe objects.
   - `beta_hat` and `s2` are finite 1D arrays with equal length and strictly positive `s2`.
-  - `maf_masks` is a 2D boolean-aligned mask over observations.
+  - `prepare_fit_state` builds a 2D likelihood matrix over observations/components; `fit_refit_step` receives one threshold-sliced likelihood matrix whose column count matches `prev_params.pi`.
   - Simulation configs provide aligned mixture parameter lengths, valid AF generator domains, and positive SE controls.
 
 ## Dependencies

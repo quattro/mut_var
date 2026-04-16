@@ -54,7 +54,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `RESULTS` status codes are explicit and stable (`successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, `max_steps_reached`).
 - `Solution` carries `value`, `result`, and optional `stats`/`state`.
 - Data-structure rule: data-only contracts use `NamedTuple`; behavior-bearing contracts use `equinox.Module`.
-- `BaselineConfig` and `InferenceConfig` no longer include a `batch_size` field.
+- `InferenceConfig` no longer includes solver-control fields (`batch_size`, `step_size`, `penalty`); pi-only solver controls are internal to numerics.
 - Canonical quality gates remain aligned between local and CI:
   - `ruff check src/mut_var tests`
   - `mypy src/mut_var tests`
