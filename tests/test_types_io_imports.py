@@ -16,6 +16,14 @@ def test_types_module_exposes_shared_contracts():
     assert not hasattr(InferenceConfig, "to_refit_config")
 
 
+def test_pipelines_package_exports_canonical_entrypoints():
+    from mut_var.pipelines import run_curve_pipeline, run_inference_pipeline, run_simulation_pipeline
+
+    assert callable(run_inference_pipeline)
+    assert callable(run_curve_pipeline)
+    assert callable(run_simulation_pipeline)
+
+
 def test_io_module_exposes_ingress_helpers():
     from mut_var.io import (
         build_maf_masks,
@@ -41,7 +49,12 @@ def test_benchmark_module_imports_with_current_io_surface():
 
 @pytest.mark.parametrize(
     "module_name",
-    ["mut_var." + "contracts", "mut_var." + "adapters"],
+    [
+        "mut_var." + "contracts",
+        "mut_var." + "adapters",
+        "mut_var.numerics.baseline",
+        "mut_var.numerics.refit",
+    ],
 )
 def test_legacy_layout_modules_are_removed(module_name: str):
     with pytest.raises(ModuleNotFoundError):

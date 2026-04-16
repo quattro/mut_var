@@ -149,6 +149,43 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     assert_no_traceback(err)
 
 
+def test_cli_infer_accepts_supported_flags_and_writes_output(monkeypatch, tmp_path):
+    stdout, stderr = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+    output_path = tmp_path / "infer.tsv"
+
+    code = cli.run_cli(
+        [
+            "infer",
+            str(valid_path),
+            "-k",
+            "3",
+            "-m",
+            "5",
+            "-f",
+            "1e-8",
+            "--lowest",
+            "0.001",
+            "--highest",
+            "0.005",
+            "--num-breaks",
+            "2",
+            "-o",
+            str(output_path),
+        ]
+    )
+
+    assert code == 0
+    assert output_path.exists()
+    output_text = output_path.read_text(encoding="utf-8")
+    assert "mu0" in output_text
+    assert "var0" in output_text
+    assert "infer: starting inference pipeline" in stderr.getvalue()
+    assert "infer: writing output" in stderr.getvalue()
+    assert_no_traceback(stderr.getvalue())
+
+
 def test_cli_infer_rejects_removed_solver_flags(monkeypatch, tmp_path):
     _, stderr = _patch_streams(monkeypatch)
     valid_path = tmp_path / "sumstats.tsv"
@@ -168,6 +205,19 @@ def test_cli_infer_rejects_removed_solver_flags(monkeypatch, tmp_path):
         assert_no_traceback(err)
         stderr.seek(0)
         stderr.truncate(0)
+
+
+def test_cli_infer_missing_input_returns_usage_error(monkeypatch, tmp_path):
+    _, stderr = _patch_streams(monkeypatch)
+    missing_path = tmp_path / "missing.tsv"
+
+    code = cli.run_cli(["infer", str(missing_path)])
+
+    assert code == 2
+    err = stderr.getvalue()
+    assert str(missing_path) in err
+    assert "does not exist" in err
+    assert_no_traceback(err)
 
 
 def test_cli_maps_inference_pipeline_error_status_to_exit(monkeypatch, tmp_path):

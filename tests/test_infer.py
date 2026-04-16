@@ -115,6 +115,36 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_pat
     assert "empty subset" in str(err.value)
 
 
+def test_run_inference_pipeline_passes_arrays_into_numerics(monkeypatch, sumstats_valid_path):
+    import mut_var.numerics.mixture_fit as mixture_fit_module
+
+    seen = {}
+
+    def _capture_prepare_fit_state(beta_hat, s2, config):
+        seen["beta_hat_is_dataframe"] = isinstance(beta_hat, pl.DataFrame)
+        seen["s2_is_dataframe"] = isinstance(s2, pl.DataFrame)
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats={"reason": "stop after ingress"},
+            state=None,
+        )
+
+    monkeypatch.setattr(mixture_fit_module, "prepare_fit_state", _capture_prepare_fit_state)
+
+    with pytest.raises(ValueError) as err:
+        run_inference_pipeline(
+            str(sumstats_valid_path),
+            lowest=1e-3,
+            highest=5e-3,
+            num_breaks=2,
+            config=InferenceConfig(num_clusters=2, max_iter=2),
+        )
+
+    assert "stop after ingress" in str(err.value)
+    assert seen == {"beta_hat_is_dataframe": False, "s2_is_dataframe": False}
+
+
 def test_orchestration_is_separate_from_cli_internals():
     assert not hasattr(numerics, "run_inference_pipeline")
     assert not hasattr(cli, "penalized_objective")
@@ -152,6 +182,21 @@ def test_numerics_module_owns_numerics_entrypoint():
     assert "InferenceConfig" not in getattr(infer_module, "__all__", ())
     assert not hasattr(infer_module, "InferenceArrays")
     assert not hasattr(numerics, "run_inference_pipeline")
+
+
+def test_run_inference_pipeline_raises_file_not_found_for_missing_path(tmp_path):
+    missing_path = tmp_path / "missing.tsv"
+
+    with pytest.raises(FileNotFoundError) as err:
+        run_inference_pipeline(
+            str(missing_path),
+            lowest=1e-3,
+            highest=5e-3,
+            num_breaks=2,
+            config=InferenceConfig(num_clusters=2, max_iter=2),
+        )
+
+    assert str(missing_path) in str(err.value)
 
 
 def test_simulated_observed_output_is_accepted_by_run_inference_pipeline(monkeypatch, tmp_path):
