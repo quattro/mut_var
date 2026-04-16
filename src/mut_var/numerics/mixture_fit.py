@@ -211,7 +211,7 @@ def fit_baseline(
             stats={"reason": "likelihood_matrix column count must match initial_params.pi length"},
             state=None,
         )
-    k = init_params.pi.shape[0]
+    k = pi_init.shape[0]
     alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
 
     obj = eqx.filter_jit(_baseline_objective)
@@ -230,7 +230,7 @@ def fit_baseline(
     optx_solution = optx.minimise(
         fn=_neg_obj,
         solver=solver,
-        y0=init_params.pi,
+        y0=pi_init,
         args=None,
         max_steps=config.max_iter,
         throw=False,

@@ -93,6 +93,31 @@ def test_fit_baseline_invalid_input_on_likelihood_parameter_shape_mismatch(synth
     }
 
 
+def test_fit_baseline_invalid_input_on_array_like_pi(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=10)
+
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    state = state_solution.value
+    array_like_state = FitState(
+        likelihood_matrix=state.likelihood_matrix,
+        initial_params=Params(
+            pi=[0.8, 0.2],
+            mu_k=state.initial_params.mu_k,
+            var_k=state.initial_params.var_k,
+        ),
+    )
+
+    solution = fit_baseline(array_like_state, config)
+
+    assert solution.result == RESULTS.invalid_input
+    assert solution.stats == {
+        "reason": "likelihood_matrix column count must match initial_params.pi length",
+    }
+
+
 def test_fit_refit_step_pi_sums_to_one_and_mu_var_unchanged(synthetic_arrays):
     beta, s2 = synthetic_arrays
     config = InferenceConfig(num_clusters=3, max_iter=10)
