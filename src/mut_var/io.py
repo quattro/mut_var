@@ -4,9 +4,19 @@ from __future__ import annotations
 import hashlib
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, NamedTuple
 
+import jax
+import jax.numpy as jnp
 import polars as pl
+
+from jaxtyping import ArrayLike
+
+
+class InferenceArrays(NamedTuple):
+    af: ArrayLike
+    beta_hat: ArrayLike
+    s2: ArrayLike
 
 
 def read_sumstats(path: str) -> pl.DataFrame:
@@ -33,6 +43,83 @@ def read_sumstats(path: str) -> pl.DataFrame:
         return pl.read_csv(path, separator="\t")
     except Exception as exc:
         raise ValueError(f"could not read summary statistics file '{path}': expected a tab-delimited file.") from exc
+
+
+def to_inference_arrays(
+    df: pl.DataFrame,
+    af_col: str,
+    beta_col: str,
+    se_col: str,
+) -> InferenceArrays:
+    r"""**Arguments:**
+
+    - `df`: Validated summary-statistics dataframe.
+    - `af_col`: Effect-allele-frequency column name.
+    - `beta_col`: Effect-size column name.
+    - `se_col`: Standard-error column name.
+
+    **Returns:**
+
+    - `InferenceArrays` with JAX arrays for AF, beta, and variance (`se^2`).
+    """
+    af = jnp.asarray(df[af_col].to_jax())
+    beta_hat = jnp.asarray(df[beta_col].to_jax())
+    std_err = jnp.asarray(df[se_col].to_jax())
+    return InferenceArrays(af=af, beta_hat=beta_hat, s2=std_err**2)
+
+
+def build_maf_masks(af: jax.Array, maf_grid: jax.Array) -> jax.Array:
+    r"""Build per-threshold boolean masks over observations."""
+    af_arr = jnp.asarray(af)
+    maf_arr = jnp.asarray(maf_grid)
+    return jnp.logical_and(
+        af_arr[jnp.newaxis, :] >= maf_arr[:, jnp.newaxis],
+        af_arr[jnp.newaxis, :] <= (1.0 - maf_arr[:, jnp.newaxis]),
+    )
+
+
+def payload_to_long_dataframe(payload: Mapping[str, object]) -> pl.DataFrame:
+    r"""Normalize numerics payload mappings into the long-format output dataframe."""
+    columns = {}
+    for name, values in payload.items():
+        if isinstance(values, (list, tuple)):
+            columns[name] = values
+        else:
+            columns[name] = jnp.asarray(values).tolist()
+    df = pl.DataFrame(columns)
+    return df.select(["mu0", "var0", "maf", "name", "value"])
+
+
+def load_inference_arrays(
+    path: str,
+    *,
+    af_col: str = "effect_allele_frequency",
+    beta_col: str = "beta",
+    se_col: str = "standard_error",
+) -> InferenceArrays:
+    r"""Load and validate summary statistics from a TSV file, returning numeric arrays.
+
+    **Arguments:**
+
+    - `path`: Input TSV path.
+    - `af_col`: Effect-allele-frequency column name.
+    - `beta_col`: Effect-size column name.
+    - `se_col`: Standard-error column name.
+
+    **Returns:**
+
+    - `InferenceArrays` with JAX arrays for AF, beta, and variance (`se^2`).
+
+    **Raises:**
+
+    - `FileNotFoundError`: Path does not exist.
+    - `ValueError`: Validation failed (missing columns, non-numeric values, domain violations).
+    """
+    df = read_sumstats(path)
+    validate_required_columns(df, af_col, beta_col, se_col)
+    validate_numeric_columns(df, af_col, beta_col, se_col)
+    validate_sumstats_domain(df, af_col, se_col)
+    return to_inference_arrays(df, af_col, beta_col, se_col)
 
 
 def validate_required_columns(
