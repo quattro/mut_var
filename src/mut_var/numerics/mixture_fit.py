@@ -185,10 +185,32 @@ def fit_baseline(
     **Returns:**
 
     - `Solution` with `Params`. Status: `RESULTS.successful`, `RESULTS.max_steps_reached`,
-      `RESULTS.nonfinite_objective`.
+      `RESULTS.invalid_input`, `RESULTS.nonfinite_objective`.
     """
     L = state.likelihood_matrix
     init_params = state.initial_params
+    pi_init = jnp.asarray(init_params.pi, dtype=jnp.float64)
+    if L.ndim != 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats={"reason": "likelihood_matrix must be a 2D array"},
+            state=None,
+        )
+    if pi_init.ndim != 1:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats={"reason": "initial_params.pi must be a 1D array"},
+            state=None,
+        )
+    if L.shape[1] != pi_init.shape[0]:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats={"reason": "likelihood_matrix column count must match initial_params.pi length"},
+            state=None,
+        )
     k = init_params.pi.shape[0]
     alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
 
@@ -282,6 +304,20 @@ def fit_refit_step(
             value=prev_params,
             result=RESULTS.invalid_input,
             stats={"reason": "L_sub contains non-finite values"},
+            state=None,
+        )
+    if pi_init.ndim != 1:
+        return Solution(
+            value=prev_params,
+            result=RESULTS.invalid_input,
+            stats={"reason": "prev_params.pi must be a 1D array"},
+            state=None,
+        )
+    if L_arr.shape[1] != pi_init.shape[0]:
+        return Solution(
+            value=prev_params,
+            result=RESULTS.invalid_input,
+            stats={"reason": "L_sub column count must match prev_params.pi length"},
             state=None,
         )
 

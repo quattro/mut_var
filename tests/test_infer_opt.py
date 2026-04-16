@@ -72,6 +72,27 @@ def test_fit_baseline_max_steps_reached_on_max_iter_one(synthetic_arrays):
     assert isinstance(solution.value, Params)
 
 
+def test_fit_baseline_invalid_input_on_likelihood_parameter_shape_mismatch(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=10)
+
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    state = state_solution.value
+    mismatched_state = FitState(
+        likelihood_matrix=state.likelihood_matrix[:, :2],
+        initial_params=state.initial_params,
+    )
+
+    solution = fit_baseline(mismatched_state, config)
+
+    assert solution.result == RESULTS.invalid_input
+    assert solution.stats == {
+        "reason": "likelihood_matrix column count must match initial_params.pi length",
+    }
+
+
 def test_fit_refit_step_pi_sums_to_one_and_mu_var_unchanged(synthetic_arrays):
     beta, s2 = synthetic_arrays
     config = InferenceConfig(num_clusters=3, max_iter=10)
@@ -93,3 +114,25 @@ def test_fit_refit_step_pi_sums_to_one_and_mu_var_unchanged(synthetic_arrays):
     assert jnp.isclose(jnp.sum(solution.value.pi), 1.0)
     assert jnp.allclose(solution.value.mu_k, prev_params.mu_k)
     assert jnp.allclose(solution.value.var_k, prev_params.var_k)
+
+
+def test_fit_refit_step_invalid_input_on_likelihood_parameter_shape_mismatch(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=10)
+
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    prev_params = Params(
+        pi=jnp.asarray([0.8, 0.2], dtype=jnp.float64),
+        mu_k=state_solution.value.initial_params.mu_k,
+        var_k=state_solution.value.initial_params.var_k,
+    )
+    l_sub = state_solution.value.likelihood_matrix[:25, :]
+
+    solution = fit_refit_step(l_sub, prev_params, config)
+
+    assert solution.result == RESULTS.invalid_input
+    assert solution.stats == {
+        "reason": "L_sub column count must match prev_params.pi length",
+    }
