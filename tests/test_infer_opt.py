@@ -44,6 +44,17 @@ def test_prepare_fit_state_empty_arrays():
     assert solution.result == RESULTS.empty_subset
 
 
+def test_prepare_fit_state_rejects_singleton_num_clusters_under_jit(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=1)
+
+    eager_solution = prepare_fit_state(beta, s2, config)
+    traced_solution = jax.jit(prepare_fit_state)(beta, s2, config)
+
+    assert eager_solution.result == RESULTS.invalid_input
+    assert traced_solution.result == RESULTS.invalid_input
+
+
 def test_fit_baseline_converges_pi_sums_to_one(synthetic_arrays):
     beta, s2 = synthetic_arrays
     config = InferenceConfig(num_clusters=3, max_iter=10)
@@ -164,10 +175,79 @@ def test_fit_refit_step_invalid_input_on_likelihood_parameter_shape_mismatch(syn
     }
 
 
+@pytest.mark.parametrize("use_jit", [False, True])
+def test_fit_baseline_returns_nonfinite_objective_when_objective_is_nonfinite(
+    synthetic_arrays,
+    monkeypatch,
+    use_jit,
+):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=5)
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    def _always_nonfinite(*args, **kwargs):
+        del args, kwargs
+        return jnp.asarray(jnp.inf, dtype=jnp.float64)
+
+    from mut_var.numerics import mixture_fit
+
+    monkeypatch.setattr(mixture_fit, "_baseline_objective", _always_nonfinite)
+
+    state = FitState(
+        likelihood_matrix=state_solution.value.likelihood_matrix,
+        initial_params=Params(
+            pi=jnp.zeros_like(state_solution.value.initial_params.pi),
+            mu_k=state_solution.value.initial_params.mu_k,
+            var_k=state_solution.value.initial_params.var_k,
+        ),
+    )
+
+    runner = jax.jit(fit_baseline) if use_jit else fit_baseline
+    solution = runner(state, config)
+
+    assert solution.result == RESULTS.nonfinite_objective
+    jax.clear_caches()
+
+
+@pytest.mark.parametrize("use_jit", [False, True])
+def test_fit_refit_step_returns_nonfinite_objective_when_objective_is_nonfinite(
+    synthetic_arrays,
+    monkeypatch,
+    use_jit,
+):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=5)
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    def _always_nonfinite(*args, **kwargs):
+        del args, kwargs
+        return jnp.asarray(jnp.inf, dtype=jnp.float64)
+
+    from mut_var.numerics import mixture_fit
+
+    monkeypatch.setattr(mixture_fit, "_refit_objective", _always_nonfinite)
+
+    prev_params = Params(
+        pi=jnp.zeros_like(state_solution.value.initial_params.pi),
+        mu_k=state_solution.value.initial_params.mu_k,
+        var_k=state_solution.value.initial_params.var_k,
+    )
+    l_sub = state_solution.value.likelihood_matrix[:25, :]
+
+    runner = jax.jit(fit_refit_step) if use_jit else fit_refit_step
+    solution = runner(l_sub, prev_params, config)
+
+    assert solution.result == RESULTS.nonfinite_objective
+    jax.clear_caches()
+
+
 def test_public_numerics_entrypoints_are_jittable(synthetic_arrays):
     beta, s2 = synthetic_arrays
     config = InferenceConfig(num_clusters=3, max_iter=5)
 
+    jax.clear_caches()
     state_solution = jax.jit(prepare_fit_state)(beta, s2, config)
     assert state_solution.result == RESULTS.successful
 

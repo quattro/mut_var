@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # pattern: Functional Core
-from typing import Any, NamedTuple
+from typing import Any, cast, NamedTuple
 
 import equinox as eqx
 import jax
@@ -75,7 +75,7 @@ def _validate_inputs(beta_hat: ArrayLike, s2: ArrayLike, config: InferenceConfig
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
-            stats={"reason": "num_clusters must be at least 2"},
+            stats=None,
             state=None,
         )
     if beta_hat_arr.ndim != 1 or s2_arr.ndim != 1:
@@ -121,6 +121,14 @@ def _prepare_fit_state_traced(
     s2: ArrayLike,
     config: InferenceConfig,
 ) -> Solution:
+    if config.num_clusters < 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats=None,
+            state=None,
+        )
+
     beta_hat_arr = jnp.asarray(beta_hat, dtype=jnp.float64)
     s2_arr = jnp.asarray(s2, dtype=jnp.float64)
     invalid = jnp.logical_or(
@@ -168,6 +176,14 @@ def _fit_baseline_traced(
     config: InferenceConfig,
     verbose: bool | Any = False,
 ) -> Solution:
+    if config.num_clusters < 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats=None,
+            state=None,
+        )
+
     L = state.likelihood_matrix
     init_params = state.initial_params
     pi_init = jnp.asarray(init_params.pi, dtype=jnp.float64)
@@ -230,8 +246,9 @@ def _fit_baseline_traced(
             max_steps=config.max_iter,
             throw=False,
         )
-        result = map_optimistix_result(optx_solution.result)
         pi_opt = optx_solution.value
+        objective_value = obj(pi_opt, L, alpha)
+        result = _result_from_objective_value(objective_value, optx_solution.result)
         params = Params(pi=pi_opt, mu_k=init_params.mu_k, var_k=init_params.var_k)
         return Solution(value=params, result=result, stats=None, state=None)
 
@@ -244,6 +261,14 @@ def _fit_refit_step_traced(
     config: InferenceConfig,
     verbose: bool | Any = False,
 ) -> Solution:
+    if config.num_clusters < 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats=None,
+            state=None,
+        )
+
     L_arr = jnp.asarray(L_sub, dtype=jnp.float64)
     pi_init = jnp.asarray(prev_params.pi, dtype=jnp.float64)
 
@@ -284,8 +309,9 @@ def _fit_refit_step_traced(
             max_steps=config.max_iter,
             throw=False,
         )
-        result = map_optimistix_result(optx_solution.result)
         pi_opt = optx_solution.value
+        objective_value = obj(pi_opt, L_arr, pi_init, alpha, _DEFAULT_PENALTY)
+        result = _result_from_objective_value(objective_value, optx_solution.result)
         params = Params(pi=pi_opt, mu_k=prev_params.mu_k, var_k=prev_params.var_k)
         return Solution(value=params, result=result, stats=None, state=None)
 
@@ -310,6 +336,13 @@ def prepare_fit_state(
     - `Solution` with `FitState` on success. Status codes:
       `RESULTS.successful`, `RESULTS.invalid_input`, `RESULTS.empty_subset`.
     """
+    if config.num_clusters < 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats=None,
+            state=None,
+        )
     if _is_tracing(beta_hat, s2):
         return _prepare_fit_state_traced(beta_hat, s2, config)
 
@@ -349,6 +382,22 @@ def _pi_step(pi: Array, direction: Array, step_size: ArrayLike) -> Array:
     return exponential_map_simplex(pi, tangent, step_size)
 
 
+def _result_from_objective_value(
+    objective_value: ArrayLike,
+    solver_result: optx.RESULTS,
+) -> RESULTS:
+    objective_is_finite = jnp.all(jnp.isfinite(jnp.asarray(objective_value)))
+    return cast(
+        RESULTS,
+        jax.lax.cond(
+            objective_is_finite,
+            lambda _: map_optimistix_result(solver_result),
+            lambda _: RESULTS.nonfinite_objective,
+            operand=None,
+        ),
+    )
+
+
 def _baseline_objective(pi: Array, L: Array, alpha: Array) -> Array:
     mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(jnp.float64).tiny)
     log_likelihood = jnp.sum(jnp.log(mixture_pdf))
@@ -374,6 +423,13 @@ def fit_baseline(
     - `Solution` with `Params`. Status: `RESULTS.successful`, `RESULTS.max_steps_reached`,
       `RESULTS.invalid_input`, `RESULTS.nonfinite_objective`.
     """
+    if config.num_clusters < 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats=None,
+            state=None,
+        )
     if _is_tracing(state, config):
         return _fit_baseline_traced(state, config, verbose=verbose)
 
@@ -425,8 +481,9 @@ def fit_baseline(
         max_steps=config.max_iter,
         throw=False,
     )
-    result = map_optimistix_result(optx_solution.result)
     pi_opt = optx_solution.value
+    objective_value = obj(pi_opt, L, alpha)
+    result = _result_from_objective_value(objective_value, optx_solution.result)
     params = Params(pi=pi_opt, mu_k=init_params.mu_k, var_k=init_params.var_k)
     return Solution(
         value=params,
@@ -472,6 +529,13 @@ def fit_refit_step(
     - `Solution` with `Params`. Status: `RESULTS.successful`, `RESULTS.max_steps_reached`,
       `RESULTS.empty_subset`, `RESULTS.invalid_input`, `RESULTS.nonfinite_objective`.
     """
+    if config.num_clusters < 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats=None,
+            state=None,
+        )
     if _is_tracing(L_sub, prev_params, config):
         return _fit_refit_step_traced(L_sub, prev_params, config, verbose=verbose)
 
@@ -537,8 +601,9 @@ def fit_refit_step(
         max_steps=config.max_iter,
         throw=False,
     )
-    result = map_optimistix_result(optx_solution.result)
     pi_opt = optx_solution.value
+    objective_value = obj(pi_opt, L_arr, pi_init, alpha, _DEFAULT_PENALTY)
+    result = _result_from_objective_value(objective_value, optx_solution.result)
     params = Params(pi=pi_opt, mu_k=prev_params.mu_k, var_k=prev_params.var_k)
     return Solution(
         value=params,
