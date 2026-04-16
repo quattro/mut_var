@@ -66,6 +66,52 @@ The main branch currently infers all three mixture parameters — means (`mu_k`)
 - codebase_investigation_complete_if_port: n/a
 - simulation_contract_complete_if_in_scope: n/a
 
+## Model Specification Sources
+| Source ID | Path/Link | Type | Notes | Confidence (high/med/low) |
+| --- | --- | --- | --- | --- |
+| SRC-1 | `src/mut_var/infer.py` | in-repo source | Current inference ingress/orchestration contract; preserves public API while boundaries move. | high |
+| SRC-2 | `src/mut_var/numerics/baseline.py` | in-repo source | Baseline numerics source for pi-only simplification and fixed-grid behavior. | high |
+| SRC-3 | `src/mut_var/numerics/refit.py` | in-repo source | Refit numerics source for pi-only simplification and MAF-subset behavior. | high |
+| SRC-4 | `src/mut_var/numerics/_solver_utils.py` | in-repo source | Simplex geometry primitives used by the existing Optimistix solver. | high |
+| SRC-5 | `src/mut_var/numerics/_optimistix_solver.py` | in-repo source | Existing Optimistix solver wrapper and line-search integration. | high |
+| SRC-6 | `src/mut_var/simulate.py` | in-repo source | Simulation pipeline contract and output artifacts used as a boundary reference. | high |
+
+## Model Option Analysis (Required When `suggested-model`)
+- Not applicable. The selected path is `provided-model`, not `suggested-model`.
+- No alternative model family is being introduced; the existing fixed-grid, pi-only inference model is retained and only the module boundaries are reorganized.
+
+## Existing Codebase Port Contract (Required When `existing-codebase-port`)
+- Not applicable. This phase is not importing an external repository or branch into the current project.
+- The only continuity requirement is public-import stability while `types.py` and `io.py` absorb the existing contracts and adapter logic.
+
+## Codebase Investigation Findings (Required When `existing-codebase-port`)
+- `contracts.py` currently contains `RESULTS` and `Solution`.
+- `adapters/tabular.py` currently contains `to_inference_arrays`, `build_maf_masks`, and `payload_to_long_dataframe`.
+- `infer.py` currently defines `InferenceArrays` and `InferenceConfig` and lazily imports adapter helpers.
+- `simulate.py` currently defines `SimulationPipelineConfig`.
+- `numerics/__init__.py` currently re-exports `InferenceArrays` and `InferenceConfig` from `mut_var.infer`.
+- These findings support the phase-1 boundary move into `types.py` and `io.py` without algorithm changes.
+
+## External Research Findings (When Triggered)
+- Not triggered for this plan. No external paper or web lookup was needed because the refactor uses the existing in-repo model and solver contracts.
+
+## Mathematical Sanity Checks
+- The inference model remains a fixed-component mixture with `pi` constrained to the probability simplex.
+- Holding `mu_k` and `var_k` fixed at the log-spaced grid preserves the likelihood family and removes only dead optimization degrees of freedom.
+- Precomputing the likelihood matrix once is equivalent to recomputing it inside the solver because the component grid and input arrays are constant within a single inference run.
+- The solver must continue to preserve `sum(pi) = 1` and non-negativity through the existing simplex geometry.
+
+## Solver Translation Feasibility
+- Feasible with the current architecture: `MutVarSolver`, `BacktrackingArmijo`, `simplex_tangent_direction`, and `exponential_map_simplex` already operate on the simplex and can accept `pi` as the sole optimization variable.
+- The solver closure can capture the fixed likelihood matrix and fixed component parameters, leaving only `pi` as traced state.
+- No new manifold or optimizer family is required for this phase.
+
+## Data Conversion and Copy Strategy
+- Ingress remains host-side: read TSV into Polars, validate columns and domains, then convert to array inputs at the boundary.
+- `to_inference_arrays` currently converts validated Polars columns with `to_jax()` and `jnp.asarray(...)`; phase 1 keeps that behavior so numerics receive array-backed inputs without carrying the dataframe forward.
+- The long-format payload is materialized only at egress, and raw source dataframes are not retained inside numerics.
+- No explicit zero-copy guarantee is made; the contract is a single boundary conversion with no dataframe-to-solver leakage.
+
 ## Solver Strategy Decision
 - User preference: keep the existing Riemannian/Optimistix solver
 - Chosen strategy: restrict the Optimistix optimization variable to `pi` only; pre-compute the likelihood matrix once before entering the solver loop
@@ -177,7 +223,8 @@ The main branch currently infers all three mixture parameters — means (`mu_k`)
 <!-- END_PHASE_4 -->
 
 ## Simulation And Inference-Consistency Validation
-- In scope: no — simulation numerics (`numerics/simulate.py`) are unchanged. The statistical model (fixed mu/var grid, pi-only weights) was already present in the simulation path; this refactor makes the inference path consistent with it.
+- In scope: no
+- Rationale: simulation numerics (`numerics/simulate.py`) are unchanged. The statistical model (fixed mu/var grid, pi-only weights) was already present in the simulation path; this refactor makes the inference path consistent with it.
 
 ## Risks and Open Questions
 | ID | Risk or Question | Severity | Mitigation or Next Step | Owner |
