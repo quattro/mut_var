@@ -107,25 +107,11 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         help="Maximum optimizer iterations.",
     )
     model_group.add_argument(
-        "-r",
-        "--step-size",
-        type=float,
-        default=0.01,
-        help="Optimization step size.",
-    )
-    model_group.add_argument("-s", "--seed", type=int, default=0, help="PRNG seed.")
-    model_group.add_argument(
         "-f",
         "--filter",
         type=float,
         default=1e-8,
         help="Weight threshold for post-fit component filtering.",
-    )
-    model_group.add_argument(
-        "--penalty",
-        type=float,
-        default=1.0,
-        help="Penalty weight for objective regularization.",
     )
 
     grid_group = infer.add_argument_group("MAF Grid")
@@ -331,13 +317,10 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             lowest=args.lowest,
             highest=args.highest,
             num_breaks=args.num_breaks,
-            seed=args.seed,
             config=InferenceConfig(
                 num_clusters=args.num_clusters,
                 max_iter=args.max_iter,
-                step_size=args.step_size,
                 filter_threshold=args.filter,
-                penalty=args.penalty,
             ),
             log=log,
         )

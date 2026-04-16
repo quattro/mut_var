@@ -196,9 +196,7 @@ def fit_baseline(
 
     def _neg_obj(pi, _args):
         val = obj(pi, L, alpha)
-        if is_nonfinite(val):
-            return jnp.inf, None
-        return val, None
+        return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
     solver = MutVarSolver(
         step_update=_pi_step,
@@ -293,9 +291,7 @@ def fit_refit_step(
 
     def _neg_obj(pi, _args):
         val = obj(pi, L_arr, pi_init, alpha, _DEFAULT_PENALTY)
-        if is_nonfinite(val):
-            return jnp.inf, None
-        return val, None
+        return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
     solver = MutVarSolver(
         step_update=_pi_step,
