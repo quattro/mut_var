@@ -18,7 +18,6 @@ import mut_var.numerics.mixture_fit as mixture_fit
 
 from mut_var.io import (
     build_maf_masks,
-    InferenceArrays,
     load_inference_arrays,
     payload_to_long_dataframe,
     validate_maf_grid,
@@ -258,7 +257,5 @@ def run_inference_pipeline(
 
 
 __all__ = [
-    "InferenceArrays",
-    "InferenceConfig",
     "run_inference_pipeline",
 ]

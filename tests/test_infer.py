@@ -144,8 +144,13 @@ def test_numerics_module_owns_numerics_entrypoint():
 
     assert importlib.util.find_spec("mut_var.numerics.pipeline") is None
     assert not hasattr(infer_module, "run_numerics_inference_pipeline")
-    assert infer_module.InferenceArrays is numerics.InferenceArrays
-    assert infer_module.InferenceConfig is numerics.InferenceConfig
+    assert "InferenceArrays" not in getattr(numerics, "__all__", ())
+    assert "InferenceConfig" not in getattr(numerics, "__all__", ())
+    assert not hasattr(numerics, "InferenceArrays")
+    assert not hasattr(numerics, "InferenceConfig")
+    assert "InferenceArrays" not in getattr(infer_module, "__all__", ())
+    assert "InferenceConfig" not in getattr(infer_module, "__all__", ())
+    assert not hasattr(infer_module, "InferenceArrays")
     assert not hasattr(numerics, "run_inference_pipeline")
 
 

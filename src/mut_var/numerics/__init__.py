@@ -1,15 +1,10 @@
 # pattern: Imperative Shell
-from mut_var.io import InferenceArrays
-from mut_var.types import InferenceConfig
-
 from .curve_fit import curve, fit_curve
 from .mixture_fit import fit_baseline, fit_refit_step, FitState, Params, prepare_fit_state
 from .simulate import simulate_mixture_data, SimulationArrays, SimulationNumericsConfig
 
 __all__ = [
     "FitState",
-    "InferenceArrays",
-    "InferenceConfig",
     "Params",
     "curve",
     "fit_baseline",
