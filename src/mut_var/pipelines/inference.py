@@ -19,12 +19,9 @@ import mut_var.numerics.mixture_fit as mixture_fit
 from mut_var.io import (
     build_maf_masks,
     InferenceArrays,
+    load_inference_arrays,
     payload_to_long_dataframe,
-    to_inference_arrays,
     validate_maf_grid,
-    validate_numeric_columns,
-    validate_required_columns,
-    validate_sumstats_domain,
 )
 from mut_var.numerics._solver_utils import is_recoverable_result, merge_recoverable_results
 from mut_var.types import InferenceConfig, RESULTS, Solution
@@ -125,7 +122,7 @@ def _solver_debug_callback(
 
 
 def run_inference_pipeline(
-    df: pl.DataFrame,
+    path: str,
     *,
     af_col: str = "effect_allele_frequency",
     beta_col: str = "beta",
@@ -136,11 +133,11 @@ def run_inference_pipeline(
     config: InferenceConfig | None = None,
     log: logging.Logger | None = None,
 ) -> pl.DataFrame:
-    r"""Run the high-level inference workflow from dataframe ingress to dataframe egress.
+    r"""Run the high-level inference workflow from path ingress to dataframe egress.
 
     **Arguments:**
 
-    - `df`: Input summary-statistics dataframe.
+    - `path`: Input summary-statistics TSV path.
     - `af_col`: AF column name.
     - `beta_col`: Effect-size column name.
     - `se_col`: Standard-error column name.
@@ -158,23 +155,16 @@ def run_inference_pipeline(
 
     - `ValueError`: Boundary validation failure or invalid numerics result.
     - `RuntimeError`: Non-recoverable numerics failure.
+    - `FileNotFoundError`: Input path does not exist.
     """
     workflow_log = logging.getLogger(__name__) if log is None else log
 
-    workflow_log.info("inference pipeline: validating input data")
+    workflow_log.info("inference pipeline: validating grid parameters")
     validate_maf_grid(lowest, highest, num_breaks)
-    validate_required_columns(df, af_col, beta_col, se_col)
-    validate_numeric_columns(df, af_col, beta_col, se_col)
-    validate_sumstats_domain(df, af_col, se_col)
-    workflow_log.info("inference pipeline: input validation complete")
 
-    workflow_log.info("inference pipeline: converting tabular data to arrays")
-    arrays = to_inference_arrays(
-        df,
-        af_col=af_col,
-        beta_col=beta_col,
-        se_col=se_col,
-    )
+    workflow_log.info("inference pipeline: loading input data from '%s'", path)
+    arrays = load_inference_arrays(path, af_col=af_col, beta_col=beta_col, se_col=se_col)
+    workflow_log.info("inference pipeline: input loaded and validated")
 
     workflow_log.info("inference pipeline: building maf grid and masks")
     maf_grid = jnp.exp(jnp.linspace(jnp.log(lowest), jnp.log(highest), num_breaks))

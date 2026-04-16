@@ -5,9 +5,10 @@
 
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
-from .curve import run_curve_pipeline
-from .infer import run_inference_pipeline
-from .simulate import run_simulation_pipeline, SimulationArtifacts, SimulationPipelineConfig
+from .pipelines.curve import run_curve_pipeline
+from .pipelines.inference import run_inference_pipeline
+from .pipelines.simulation import run_simulation_pipeline, SimulationArtifacts
+from .types import SimulationPipelineConfig
 
 try:
     # Change here if project is renamed and does not equal the package name

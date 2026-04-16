@@ -10,11 +10,11 @@ from typing import Sequence, TextIO
 
 import jax
 
-from mut_var.curve import run_curve_pipeline
-from mut_var.infer import InferenceConfig, run_inference_pipeline
-from mut_var.io import read_sumstats
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.simulate import run_simulation_pipeline, SimulationPipelineConfig
+from mut_var.pipelines.curve import run_curve_pipeline
+from mut_var.pipelines.inference import run_inference_pipeline
+from mut_var.pipelines.simulation import run_simulation_pipeline
+from mut_var.types import InferenceConfig, SimulationPipelineConfig
 
 jax.config.update("jax_enable_x64", True)
 FMT = ap.ArgumentDefaultsHelpFormatter
@@ -305,12 +305,9 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     """
     try:
         log.info("infer: loading data from '%s'", args.sumstats)
-        df = read_sumstats(args.sumstats)
-        log.info("infer: data loaded (%d rows)", df.height)
-
         log.info("infer: starting inference pipeline")
         result_df = run_inference_pipeline(
-            df,
+            args.sumstats,
             af_col=args.af_col,
             beta_col=args.beta_col,
             se_col=args.se_col,

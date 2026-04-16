@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+# pattern: Imperative Shell
 import argparse
 import json
 import sys
+import tempfile
 
 from pathlib import Path
 from time import sleep
@@ -18,8 +20,9 @@ if str(SRC) not in sys.path:
 
 from mut_var.adapters.array_cache import ArrayConversionCache  # noqa: E402
 from mut_var.adapters.tabular import to_inference_arrays, to_inference_arrays_cached  # noqa: E402
-from mut_var.infer import InferenceConfig, run_inference_pipeline  # noqa: E402
 from mut_var.numerics.profiling import evaluate_performance_gate, profile_solution_runs  # noqa: E402
+from mut_var.pipelines.inference import run_inference_pipeline  # noqa: E402
+from mut_var.types import InferenceConfig  # noqa: E402
 
 
 class RuntimeBenchmarkConfig(NamedTuple):
@@ -66,9 +69,7 @@ def _inference_config(config: RuntimeBenchmarkConfig) -> InferenceConfig:
     return InferenceConfig(
         num_clusters=config.num_clusters,
         max_iter=config.max_iter,
-        step_size=config.step_size,
         filter_threshold=config.filter_threshold,
-        penalty=config.penalty,
     )
 
 
@@ -81,6 +82,9 @@ def profile_path(
     cache = ArrayConversionCache()
     cache_stats = {"hits": 0, "misses": 0}
     infer_config = _inference_config(config)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as handle:
+        df.write_csv(handle, separator="\t")
+        sumstats_path = Path(handle.name)
 
     def run_once():
         if use_cache:
@@ -105,11 +109,10 @@ def profile_path(
                 sleep(config.legacy_conversion_delay_seconds)
 
         result_df = run_inference_pipeline(
-            df,
+            str(sumstats_path),
             lowest=config.lowest,
             highest=config.highest,
             num_breaks=config.num_breaks,
-            seed=config.seed,
             config=infer_config,
         )
         if result_df.height == 0:

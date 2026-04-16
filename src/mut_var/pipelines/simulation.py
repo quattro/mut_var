@@ -183,6 +183,5 @@ def run_simulation_pipeline(
 
 __all__ = [
     "SimulationArtifacts",
-    "SimulationPipelineConfig",
     "run_simulation_pipeline",
 ]
