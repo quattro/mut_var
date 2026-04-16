@@ -11,9 +11,7 @@ from typing import Sequence, TextIO
 import jax
 
 from mut_var.numerics import SimulationNumericsConfig
-from mut_var.pipelines.curve import run_curve_pipeline
-from mut_var.pipelines.inference import run_inference_pipeline
-from mut_var.pipelines.simulation import run_simulation_pipeline
+from mut_var.pipelines import run_curve_pipeline, run_inference_pipeline, run_simulation_pipeline
 from mut_var.types import InferenceConfig, SimulationPipelineConfig
 
 jax.config.update("jax_enable_x64", True)
@@ -86,13 +84,6 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
 
     model_group = infer.add_argument_group("Model Controls")
     model_group.add_argument(
-        "-t",
-        "--maf-threshold",
-        type=float,
-        default=0.01,
-        help="Reserved MAF threshold parameter for model controls.",
-    )
-    model_group.add_argument(
         "-k",
         "--num-clusters",
         type=int,
@@ -113,29 +104,11 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         default=1e-8,
         help="Weight threshold for post-fit component filtering.",
     )
-    model_group.add_argument(
-        "--step-size",
-        type=float,
-        default=0.5,
-        help="Reserved compatibility flag for Phase 3; ignored by the inference pipeline.",
-    )
-    model_group.add_argument(
-        "--penalty",
-        type=float,
-        default=1.0,
-        help="Reserved compatibility flag for Phase 3; ignored by the inference pipeline.",
-    )
-    model_group.add_argument(
-        "--seed",
-        type=int,
-        default=0,
-        help="Reserved compatibility flag for Phase 3; ignored by the inference pipeline.",
-    )
 
     grid_group = infer.add_argument_group("MAF Grid")
     grid_group.add_argument("--lowest", type=float, default=1e-5, help="Minimum MAF grid value.")
     grid_group.add_argument("--highest", type=float, default=1e-2, help="Maximum MAF grid value.")
-    grid_group.add_argument("--num_breaks", type=int, default=10, help="Number of MAF grid breakpoints.")
+    grid_group.add_argument("--num-breaks", type=int, default=10, help="Number of MAF grid breakpoints.")
 
     infer.add_argument(
         "-v",
@@ -322,7 +295,6 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
     """
     try:
-        log.info("infer: loading data from '%s'", args.sumstats)
         log.info("infer: starting inference pipeline")
         result_df = run_inference_pipeline(
             args.sumstats,
