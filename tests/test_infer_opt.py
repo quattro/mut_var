@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from mut_var.numerics.mixture_fit import fit_baseline, fit_refit_step, FitState, Params, prepare_fit_state
+from mut_var.io import load_inference_arrays
+from mut_var.numerics._solver._trust_region import (
+    _accept_trust_region_step,
+    _boundary_stagnation_converged,
+)
+from mut_var.numerics._solver_utils import simplex_to_sphere, sphere_to_simplex
+from mut_var.numerics.mixture_fit import (
+    _refit_hessian_builder,
+    _refit_objective,
+    fit_baseline,
+    fit_refit_step,
+    FitState,
+    Params,
+    prepare_fit_state,
+)
 from mut_var.types import InferenceConfig, RESULTS
 
 
@@ -97,3 +112,103 @@ def test_rtr_baseline_makes_progress(synthetic_arrays):
     # Solver must have accepted at least one step — if pred_gain sign is wrong,
     # n_steps will be maxiter with zero accepted steps and objective unchanged.
     assert solution.stats is not None and solution.stats["n_steps"] > 0
+
+
+def test_rtr_refit_builder_gradient_matches_penalized_objective():
+    l_sub = jnp.asarray(
+        [
+            [0.80, 0.15, 0.05],
+            [0.70, 0.20, 0.10],
+            [0.60, 0.25, 0.15],
+        ],
+        dtype=jnp.float64,
+    )
+    prev_pi = jnp.asarray([0.80, 0.15, 0.05], dtype=jnp.float64)
+    pi = jnp.asarray([0.70, 0.10, 0.20], dtype=jnp.float64)
+    alpha = jnp.asarray([10.0, 1.0, 1.0], dtype=jnp.float64)
+    y = simplex_to_sphere(pi)
+
+    f, rgrad, _hessian = _refit_hessian_builder(y, pi, (l_sub, prev_pi, alpha))
+
+    def penalized_refit_on_sphere(y_sphere):
+        pi_sphere = sphere_to_simplex(y_sphere)
+        return _refit_objective(pi_sphere, l_sub, prev_pi, alpha, 1.0)
+
+    autodiff_grad = jax.grad(penalized_refit_on_sphere)(y)
+    autodiff_rgrad = autodiff_grad - jnp.dot(y, autodiff_grad) * y
+
+    assert jnp.isfinite(f)
+    assert jnp.allclose(rgrad, autodiff_rgrad, rtol=1e-8, atol=1e-8)
+
+
+def test_rgd_baseline_converges_quickly_on_fixture():
+    arrays = load_inference_arrays("tests/fixtures/sumstats_valid.tsv")
+    config = InferenceConfig(num_clusters=10, max_iter=100, tol=1e-3, solver="rgd")
+
+    state_solution = prepare_fit_state(arrays.beta_hat, arrays.s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    solution = fit_baseline(state_solution.value, config)
+
+    assert solution.result == RESULTS.successful
+    assert solution.stats is not None
+    # Regression: a too-small fixed geodesic step seed forced the baseline fit
+    # to spend ~50 accepted iterations making tiny Armijo-safe updates.
+    assert int(solution.stats["n_steps"]) < 20
+
+
+def test_rtr_baseline_does_not_stall_on_orthant_crossing_fixture():
+    arrays = load_inference_arrays("tests/fixtures/sumstats_valid.tsv")
+    config = InferenceConfig(num_clusters=10, max_iter=100, tol=1e-3, solver="rtr")
+
+    state_solution = prepare_fit_state(arrays.beta_hat, arrays.s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    solution = fit_baseline(state_solution.value, config)
+
+    assert solution.result == RESULTS.successful
+    assert solution.stats is not None
+    # Regression: RTR used to reject valid geodesic trials whenever the sphere
+    # chart crossed into a negative orthant, causing repeated radius quartering
+    # at identical objective values near sparse solutions.
+    assert int(solution.stats["n_steps"]) < 10
+
+
+def test_rtr_accepts_positive_tiny_model_reduction_step():
+    accepted = _accept_trust_region_step(
+        f=jnp.asarray(6_441_581.815680849, dtype=jnp.float64),
+        actual_reduction=jnp.asarray(1e-6, dtype=jnp.float64),
+        pred_reduction=jnp.asarray(5e-6, dtype=jnp.float64),
+        rho=jnp.asarray(0.2, dtype=jnp.float64),
+        eta_accept=0.1,
+    )
+    assert bool(accepted)
+
+    accepted_subthreshold = _accept_trust_region_step(
+        f=jnp.asarray(6_441_581.815680849, dtype=jnp.float64),
+        actual_reduction=jnp.asarray(1e-6, dtype=jnp.float64),
+        pred_reduction=jnp.asarray(5e-6, dtype=jnp.float64),
+        rho=jnp.asarray(0.05, dtype=jnp.float64),
+        eta_accept=0.1,
+    )
+    assert bool(accepted_subthreshold)
+
+
+def test_rtr_boundary_stagnation_counts_as_converged():
+    converged = _boundary_stagnation_converged(
+        radius=jnp.asarray(1e-12, dtype=jnp.float64),
+        pred_reduction=jnp.asarray(1.1432911006049647e-11, dtype=jnp.float64),
+        objective=jnp.asarray(6_441_581.815678639, dtype=jnp.float64),
+        on_boundary=jnp.asarray(True),
+        min_radius=1e-12,
+    )
+    assert bool(converged)
+
+    not_converged = _boundary_stagnation_converged(
+        radius=jnp.asarray(1e-6, dtype=jnp.float64),
+        pred_reduction=jnp.asarray(1e-3, dtype=jnp.float64),
+        objective=jnp.asarray(10.0, dtype=jnp.float64),
+        on_boundary=jnp.asarray(False),
+        min_radius=1e-12,
+    )
+    assert not bool(not_converged)

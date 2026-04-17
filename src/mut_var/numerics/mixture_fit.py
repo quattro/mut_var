@@ -25,7 +25,7 @@ from mut_var.numerics._solver_utils import (
 )
 from mut_var.types import InferenceConfig, RESULTS, Solution
 
-_DEFAULT_STEP_SIZE: float = 0.01
+_DEFAULT_STEP_SIZE: float = 0.05
 _DEFAULT_PENALTY: float = 1.0
 
 
@@ -190,14 +190,28 @@ def _ordering_penalty(pi: Array, prev_pi: Array, penalty: float) -> Array:
     return penalty * (p1 + rel_point_mass_dist)
 
 
+def _ordering_penalty_pi_subgradient(pi: Array, prev_pi: Array, penalty: float) -> Array:
+    """Piecewise-linear subgradient of the ordering penalty in simplex coordinates."""
+    active_c1 = (prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]) > 0.0
+    grad = jnp.zeros_like(pi)
+    grad = grad.at[:-1].add(penalty * prev_pi[1:] * active_c1)
+    grad = grad.at[1:].add(-penalty * prev_pi[:-1] * active_c1)
+    active_c2 = (prev_pi[0] - pi[0]) > 0.0
+    grad = grad.at[0].add(-penalty * active_c2)
+    return grad
+
+
 def _refit_hessian_builder(y_sphere: Array, pi: Array, args: Any) -> tuple[Array, Array, lx.AbstractLinearOperator]:
-    # The ReLU ordering penalty is omitted from the Hessian (non-smooth and
-    # small away from the active set). We include it in `f` so the TR
-    # actual/predicted reduction ratio reflects the full refit objective.
+    # The ReLU ordering penalty contributes a piecewise-constant subgradient.
+    # We include that in the trust-region gradient so the step direction matches
+    # the penalized refit objective, but still omit the nonsmooth Hessian term.
     L_sub, prev_pi, alpha = args
     f_mix, rg, H = _mixture_rgrad_riemannian_hessian(y_sphere, pi, L_sub, alpha)
+    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, _DEFAULT_PENALTY)
+    penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
+    penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
     f = f_mix + _ordering_penalty(pi, prev_pi, _DEFAULT_PENALTY)
-    return f, rg, H
+    return f, rg + penalty_rgrad, H
 
 
 def _result_from_objective_value(
