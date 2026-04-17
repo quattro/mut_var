@@ -15,6 +15,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - **Guarantees**:
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths and are JIT-safe under `jax.jit` for valid array inputs.
   - Baseline/refit optimization is full-batch and routed through Optimistix. The solver is selected by `InferenceConfig.solver`: `"rgd"` (default) uses `RiemannianGradientDescent` (steepest descent + backtracking Armijo line search on the simplex) and `"rtr"` uses `RiemannianTrustRegion` with an analytic gradient/Hessian builder and TruncatedCG subsolver.
+  - Refit ordering strength is controlled through `InferenceConfig.penalty`; numerics do not hardcode a separate refit penalty outside the config boundary.
   - Baseline and refit objectives are JIT-staged with `equinox.filter_jit`.
   - Optional `verbose` controls (bool/callable) emit solver diagnostics from the Optimistix-compatible solver step path.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.

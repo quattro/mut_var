@@ -171,6 +171,8 @@ def test_cli_infer_accepts_supported_flags_and_writes_output(monkeypatch, tmp_pa
             "0.005",
             "--num-breaks",
             "2",
+            "--penalty",
+            "1.5",
             "-o",
             str(output_path),
         ]
@@ -193,7 +195,6 @@ def test_cli_infer_rejects_removed_solver_flags(monkeypatch, tmp_path):
 
     for flag, value in (
         ("--step-size", "0.25"),
-        ("--penalty", "1.5"),
         ("--seed", "7"),
         ("--maf-threshold", "0.01"),
     ):

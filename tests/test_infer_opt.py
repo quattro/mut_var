@@ -12,7 +12,6 @@ from mut_var.numerics._solver._trust_region import (
 )
 from mut_var.numerics._solver_utils import simplex_to_sphere, sphere_to_simplex
 from mut_var.numerics.mixture_fit import (
-    _DEFAULT_PENALTY,
     _refit_hessian_builder,
     _refit_objective,
     fit_baseline,
@@ -141,6 +140,7 @@ def test_rtr_baseline_makes_progress(synthetic_arrays):
 
 
 def test_rtr_refit_builder_gradient_matches_penalized_objective():
+    penalty = 100.0
     l_sub = jnp.asarray(
         [
             [0.80, 0.15, 0.05],
@@ -154,11 +154,11 @@ def test_rtr_refit_builder_gradient_matches_penalized_objective():
     alpha = jnp.asarray([10.0, 1.0, 1.0], dtype=jnp.float64)
     y = simplex_to_sphere(pi)
 
-    f, rgrad, _hessian = _refit_hessian_builder(y, pi, (l_sub, prev_pi, alpha))
+    f, rgrad, _hessian = _refit_hessian_builder(y, pi, (l_sub, prev_pi, alpha, penalty))
 
     def penalized_refit_on_sphere(y_sphere):
         pi_sphere = sphere_to_simplex(y_sphere)
-        return _refit_objective(pi_sphere, l_sub, prev_pi, alpha, _DEFAULT_PENALTY)
+        return _refit_objective(pi_sphere, l_sub, prev_pi, alpha, penalty)
 
     autodiff_grad = jax.grad(penalized_refit_on_sphere)(y)
     autodiff_rgrad = autodiff_grad - jnp.dot(y, autodiff_grad) * y

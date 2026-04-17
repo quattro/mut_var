@@ -26,7 +26,6 @@ from mut_var.numerics._solver_utils import (
 from mut_var.types import InferenceConfig, RESULTS, Solution
 
 _DEFAULT_STEP_SIZE: float = 0.05
-_DEFAULT_PENALTY: float = 100.0
 
 
 def _pi_step(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
@@ -226,12 +225,12 @@ def _refit_hessian_builder(
     # The ReLU ordering penalty contributes a piecewise-constant subgradient.
     # We include that in the trust-region gradient so the step direction matches
     # the penalized refit objective, but still omit the nonsmooth Hessian term.
-    L_sub, prev_pi, alpha = args
+    L_sub, prev_pi, alpha, penalty = args
     f_mix, rg, H = _mixture_rgrad_riemannian_hessian(y_sphere, pi, L_sub, alpha)
-    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, _DEFAULT_PENALTY)
+    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty)
     penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
     penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
-    f = f_mix + _ordering_penalty(pi, prev_pi, _DEFAULT_PENALTY)
+    f = f_mix + _ordering_penalty(pi, prev_pi, penalty)
     return f, rg + penalty_rgrad, H
 
 
@@ -269,12 +268,12 @@ def _masked_refit_hessian_builder(
     pi: Array,
     args: Any,
 ) -> tuple[Array, Array, lx.AbstractLinearOperator]:
-    L, row_weights, prev_pi, alpha = args
+    L, row_weights, prev_pi, alpha, penalty = args
     f_mix, rg, H = _weighted_mixture_rgrad_riemannian_hessian(y_sphere, pi, L, row_weights, alpha)
-    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, _DEFAULT_PENALTY)
+    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty)
     penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
     penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
-    f = f_mix + _ordering_penalty(pi, prev_pi, _DEFAULT_PENALTY)
+    f = f_mix + _ordering_penalty(pi, prev_pi, penalty)
     return f, rg + penalty_rgrad, H
 
 
@@ -393,14 +392,14 @@ _masked_refit_obj_jit = eqx.filter_jit(_masked_refit_objective)
 
 
 def _neg_refit_obj(pi: Array, args: tuple) -> Array:
-    L_sub, prev_pi, alpha = args
-    val = _refit_obj_jit(pi, L_sub, prev_pi, alpha, _DEFAULT_PENALTY)
+    L_sub, prev_pi, alpha, penalty = args
+    val = _refit_obj_jit(pi, L_sub, prev_pi, alpha, penalty)
     return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
 
 def _neg_masked_refit_obj(pi: Array, args: tuple) -> Array:
-    L, row_weights, prev_pi, alpha = args
-    val = _masked_refit_obj_jit(pi, L, row_weights, prev_pi, alpha, _DEFAULT_PENALTY)
+    L, row_weights, prev_pi, alpha, penalty = args
+    val = _masked_refit_obj_jit(pi, L, row_weights, prev_pi, alpha, penalty)
     return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
 
@@ -443,12 +442,12 @@ def fit_refit_step(
         fn=_neg_refit_obj,
         solver=solver,
         y0=pi_init,
-        args=(L_arr, pi_init, alpha),
+        args=(L_arr, pi_init, alpha, config.penalty),
         max_steps=config.max_iter,
         throw=False,
     )
     pi_opt = optx_solution.value
-    objective_value = _refit_obj_jit(pi_opt, L_arr, pi_init, alpha, _DEFAULT_PENALTY)
+    objective_value = _refit_obj_jit(pi_opt, L_arr, pi_init, alpha, config.penalty)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(
@@ -487,12 +486,12 @@ def fit_refit_masked_step(
         fn=_neg_masked_refit_obj,
         solver=solver,
         y0=pi_init,
-        args=(L_arr, row_weights, pi_init, alpha),
+        args=(L_arr, row_weights, pi_init, alpha, config.penalty),
         max_steps=config.max_iter,
         throw=False,
     )
     pi_opt = optx_solution.value
-    objective_value = _masked_refit_obj_jit(pi_opt, L_arr, row_weights, pi_init, alpha, _DEFAULT_PENALTY)
+    objective_value = _masked_refit_obj_jit(pi_opt, L_arr, row_weights, pi_init, alpha, config.penalty)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(

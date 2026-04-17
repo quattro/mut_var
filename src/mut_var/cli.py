@@ -120,6 +120,12 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
             "or second-order Riemannian trust-region (rtr)."
         ),
     )
+    model_group.add_argument(
+        "--penalty",
+        type=float,
+        default=100.0,
+        help="Ordering penalty weight used in refit steps.",
+    )
 
     grid_group = infer.add_argument_group("MAF Grid")
     grid_group.add_argument("--lowest", type=float, default=1e-5, help="Minimum MAF grid value.")
@@ -326,6 +332,7 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
                 tol=args.tol,
                 filter_threshold=args.filter,
                 solver=args.solver,
+                penalty=args.penalty,
             ),
             log=log,
         )

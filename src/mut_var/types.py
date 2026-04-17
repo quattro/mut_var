@@ -37,6 +37,7 @@ class InferenceConfig(NamedTuple):
     tol: float = 1e-3
     filter_threshold: float = 1e-8
     solver: str = "rgd"
+    penalty: float = 100.0
 
 
 jax.tree_util.register_static(InferenceConfig)
