@@ -79,9 +79,10 @@ def test_plotting_mode_writes_png_side_effects(tmp_path):
     assert coef_df.height > 0
     png_paths = list(tmp_path.glob("*.png"))
     assert len(png_paths) > 0
-    for path in png_paths:
-        assert path.exists()
-        assert path.suffix == ".png"
+    assert {path.name for path in png_paths} == {
+        "curve_small.tsv_var_0.png",
+        "curve_small.tsv_var_1.png",
+    }
 
 
 def test_plotting_does_not_change_fit_outputs(tmp_path):
@@ -93,6 +94,28 @@ def test_plotting_does_not_change_fit_outputs(tmp_path):
     assert fit_only.height > 0
     assert with_plots.height > 0
     assert bool(jnp.allclose(_coef_matrix(fit_only), _coef_matrix(with_plots), rtol=1e-6, atol=1e-6))
+
+
+def test_plot_titles_use_component_index_labels(monkeypatch, tmp_path):
+    data_path = _copy_fixture(tmp_path)
+    captured_titles: list[str] = []
+    captured_paths: list[Path] = []
+
+    def _fake_render_curve_plot(*, title, output_path, **kwargs):  # noqa: ANN003
+        del kwargs
+        captured_titles.append(title)
+        captured_paths.append(Path(output_path))
+        return Path(output_path)
+
+    monkeypatch.setattr("mut_var.plotting.curve_plots.render_curve_plot", _fake_render_curve_plot)
+
+    run_curve_pipeline(str(data_path), generate_plots=True)
+
+    assert captured_titles == ["var_0 = 0.1", "var_1 = 0.2"]
+    assert [path.name for path in captured_paths] == [
+        "curve_small.tsv_var_0.png",
+        "curve_small.tsv_var_1.png",
+    ]
 
 
 def test_fit_curve_passes_throw_false_and_returns_clean_success_stats(monkeypatch):

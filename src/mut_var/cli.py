@@ -113,9 +113,12 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     model_group.add_argument(
         "--solver",
         type=str,
-        choices=("optimistix", "rtr"),
-        default="optimistix",
-        help="Optimization solver: first-order Riemannian GD (optimistix) or second-order RTR (rtr).",
+        choices=("rgd", "rtr"),
+        default="rgd",
+        help=(
+            "Optimization solver: first-order Riemannian gradient descent (rgd) "
+            "or second-order Riemannian trust-region (rtr)."
+        ),
     )
 
     grid_group = infer.add_argument_group("MAF Grid")

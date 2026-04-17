@@ -25,14 +25,14 @@ from mut_var.numerics._solver._common import default_verbose
 Y = TypeVar("Y")
 
 
-class RiemannianGradientDescentState(eqx.Module, Generic[Y]):
+class RiemannianSteepestDescentState(eqx.Module, Generic[Y]):
     params: Y
     grad: Y
     step_index: Array
 
 
-class RiemannianGradientDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, RiemannianGradientDescentState[Y]]):
-    r"""Retraction-parameterised gradient descent for manifold-constrained problems.
+class RiemannianSteepestDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, RiemannianSteepestDescentState[Y]]):
+    r"""Retraction-parameterised steepest-descent direction for manifold-constrained problems.
 
     Wraps an unconstrained Euclidean gradient into a manifold-aware proposal
     using a user-supplied ``step_update`` (the retraction). The retraction
@@ -40,9 +40,9 @@ class RiemannianGradientDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGr
     conversion, tangent projection, and sign convention needed to move the
     parameter *downhill* by ``step_size``.
 
-    In practice this is used with the Fisher-Rao retraction on the simplex
-    (:func:`~mut_var.numerics._solver_utils.exponential_map_simplex`), but the
-    descent itself is agnostic to the specific manifold.
+    This is an :class:`optimistix.AbstractDescent` primitive; compose it with a
+    line search and termination rule via :class:`RiemannianGradientDescent` to
+    obtain a full :class:`optimistix.AbstractMinimiser`.
     """
 
     step_update: Callable[[Y, Y, ArrayLike], Y] = eqx.field(static=True)
@@ -54,28 +54,28 @@ class RiemannianGradientDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGr
         self,
         params: Y,
         f_info_struct: optx.FunctionInfo.EvalGrad,
-    ) -> RiemannianGradientDescentState[Y]:
+    ) -> RiemannianSteepestDescentState[Y]:
         r"""Initialize descent state with a zero gradient matching the parameter structure."""
         del f_info_struct
         zeros = jax.tree.map(lambda leaf: jnp.zeros_like(leaf), params)
-        return RiemannianGradientDescentState(params=params, grad=zeros, step_index=jnp.asarray(0, dtype=jnp.int32))
+        return RiemannianSteepestDescentState(params=params, grad=zeros, step_index=jnp.asarray(0, dtype=jnp.int32))
 
     def query(
         self,
         params: Y,
         f_info: optx.FunctionInfo.EvalGrad,
-        state: RiemannianGradientDescentState[Y],
-    ) -> RiemannianGradientDescentState[Y]:
+        state: RiemannianSteepestDescentState[Y],
+    ) -> RiemannianSteepestDescentState[Y]:
         r"""Update the stored gradient from current function information."""
         if not isinstance(f_info, optx.FunctionInfo.EvalGrad):
-            raise ValueError("RiemannianGradientDescent requires gradient information")
+            raise ValueError("RiemannianSteepestDescent requires gradient information")
         step_index = state.step_index + jnp.asarray(1, dtype=jnp.int32)
-        return RiemannianGradientDescentState(params=params, grad=f_info.grad, step_index=step_index)
+        return RiemannianSteepestDescentState(params=params, grad=f_info.grad, step_index=step_index)
 
     def step(
         self,
         step_size: ArrayLike,
-        state: RiemannianGradientDescentState[Y],
+        state: RiemannianSteepestDescentState[Y],
     ) -> tuple[Y, optx.RESULTS]:
         r"""Apply one manifold-aware parameter proposal step."""
         next_params = self.step_update(state.params, state.grad, step_size)
@@ -83,11 +83,21 @@ class RiemannianGradientDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGr
         return delta, optx.RESULTS.successful
 
 
-class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
+class RiemannianGradientDescent(optx.AbstractGradientDescent[Y, Any]):
+    r"""Riemannian gradient-descent minimiser: steepest descent + backtracking line search.
+
+    Composes :class:`RiemannianSteepestDescent` with
+    :class:`optimistix.BacktrackingArmijo` so ``optx.minimise`` can drive the
+    solver end-to-end: compute the Euclidean gradient via ``jax.linearize``,
+    pick a step size by backtracking on the Armijo condition, retract onto the
+    manifold through the user-supplied ``step_update``, and terminate on the
+    standard Cauchy (rtol/atol) criterion.
+    """
+
     rtol: float
     atol: float
     norm: Callable[[PyTree[Array]], Array]
-    descent: RiemannianGradientDescent[Y]
+    descent: RiemannianSteepestDescent[Y]
     search: optx.AbstractSearch[Y, optx.FunctionInfo.EvalGrad, optx.FunctionInfo.Eval, Any]
     verbose: Callable[..., None]
 
@@ -105,7 +115,7 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = RiemannianGradientDescent(step_update=step_update)
+        self.descent = RiemannianSteepestDescent(step_update=step_update)
         self.search = search if search is not None else optx.BacktrackingArmijo(step_init=step_size)
         self.verbose = default_verbose(verbose)
 
@@ -138,7 +148,7 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
             y_diff = (state.y_eval**ω - y**ω).ω
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
             terminate = cauchy_termination(self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff)
-            terminate = jnp.where(state.first_step, jnp.array(False), terminate)  # Skip termination on first step
+            terminate = jnp.where(state.first_step, jnp.array(False), terminate)
             return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
 
         def rejected(descent_state):
@@ -170,3 +180,10 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
             result=result,
         )
         return y, state, prev_aux
+
+
+__all__ = [
+    "RiemannianGradientDescent",
+    "RiemannianSteepestDescent",
+    "RiemannianSteepestDescentState",
+]

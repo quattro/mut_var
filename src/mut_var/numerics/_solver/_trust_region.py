@@ -15,71 +15,20 @@ from jax import Array
 from mut_var.numerics._solver._common import default_verbose
 from mut_var.numerics._solver._truncated_cg import TruncatedCG
 from mut_var.numerics._solver_utils import (
-    project_tangent_sphere,
     simplex_to_sphere,
     sphere_expmap,
     sphere_to_simplex,
 )
 
 # =============================================================================
-# Riemannian gradient + lazy Hessian operator (sphere chart)
+# Riemannian trust-region solver (sphere-chart, analytic Hessian only)
 # =============================================================================
 
-
-def _riemannian_grad_hessian(
-    sphere_obj: Callable[[Array], Array],
-    y_sphere: Array,
-    *,
-    autodiff_mode: str = "bwd",
-) -> tuple[Array, lx.FunctionLinearOperator]:
-    r"""Return $(\nabla_R f, \mathrm{Hess}_R f)$ at ``y_sphere`` as an HVP operator.
-
-    Mirrors ``optimistix.second_order._grad_hessian`` but emits tangent-projected
-    outputs for the unit-sphere chart. The forward-over-reverse AD linearisation
-    is shared across every HVP in the inner TruncatedCG solve, so the Euclidean
-    Hessian is never materialised.
-
-    **Arguments:**
-
-    - `sphere_obj`: scalar-valued minimisation objective on the sphere chart.
-    - `y_sphere`: base point on the positive-orthant unit sphere.
-    - `autodiff_mode`: ``"bwd"`` (reverse-mode gradient, default) or ``"fwd"``.
-
-    **Returns:**
-
-    A tuple ``(rgrad, hessian)`` where ``rgrad`` is the Riemannian gradient and
-    ``hessian`` is a :class:`lineax.FunctionLinearOperator` implementing the
-    Riemannian Hessian-vector product.
-    """
-    if autodiff_mode == "bwd":
-        grad_fn = jax.grad(sphere_obj)
-    elif autodiff_mode == "fwd":
-        grad_fn = jax.jacfwd(sphere_obj)
-    else:
-        raise ValueError(f"Unknown `autodiff_mode`={autodiff_mode!r}; expected 'fwd' or 'bwd'.")
-
-    ge, hvp_euclid = jax.linearize(grad_fn, y_sphere)
-    rgrad = project_tangent_sphere(y_sphere, ge)
-    y_ge_dot = jnp.dot(y_sphere, ge)
-
-    def rhvp(v: Array) -> Array:
-        # Projection sandwich + curvature correction give the Riemannian
-        # Hessian on an embedded sphere: P(H_E v) - <y, g_E> v.
-        v_proj = project_tangent_sphere(y_sphere, v)
-        term1 = project_tangent_sphere(y_sphere, hvp_euclid(v_proj))
-        return term1 - y_ge_dot * v_proj
-
-    hessian = lx.FunctionLinearOperator(
-        rhvp,
-        jax.eval_shape(lambda: y_sphere),
-        frozenset({lx.symmetric_tag}),
-    )
-    return rgrad, hessian
-
-
-# =============================================================================
-# RTR Optimistix solver
-# =============================================================================
+# Builder contract: ``builder(y_sphere, pi, args) -> (f, rgrad, hessian)``.
+# All three are computed analytically once per outer step so the solver never
+# needs to autodiff the objective — the caller supplies the problem-specific
+# closed-form Riemannian gradient, objective value, and Hessian operator.
+RiemannianHessianBuilder = Callable[[Array, Array, Any], tuple[Array, Array, lx.AbstractLinearOperator]]
 
 
 class _RTRSolverState(eqx.Module):
@@ -88,24 +37,23 @@ class _RTRSolverState(eqx.Module):
 
 
 class RiemannianTrustRegion(optx.AbstractMinimiser):
-    r"""Riemannian trust-region minimiser for simplex-constrained objectives.
+    r"""Riemannian trust-region minimiser for simplex-constrained mixture fits.
 
     Parameterises $\pi \in \Delta^{k-1}$ through $y = \sqrt{\pi}$ on the
-    positive-orthant unit sphere. Each outer iteration builds the Riemannian
-    gradient and a lazy Hessian-vector-product operator via JAX automatic
-    differentiation, approximately solves the trust-region subproblem with
-    :class:`~mut_var.numerics._solver._truncated_cg.TruncatedCG`, retracts along the
-    sphere geodesic, and accepts/rejects based on the actual vs. predicted
-    objective reduction.
-
-    Conceptually this matches :class:`optimistix.TrustNewton` with
-    :class:`optimistix.SteihaugCGDescent`: the Hessian is exposed as a
-    :class:`lineax.FunctionLinearOperator` so no dense matrix is ever
-    materialised, HVPs share a single forward-over-reverse AD linearisation,
-    and forward- or reverse-mode gradients are both supported.
+    positive-orthant unit sphere. Each outer iteration delegates objective,
+    gradient, and Hessian evaluation to a caller-supplied analytic
+    ``riemannian_hessian_builder``, approximately solves the trust-region
+    subproblem with
+    :class:`~mut_var.numerics._solver._truncated_cg.TruncatedCG`, retracts
+    along the sphere geodesic, and accepts/rejects via the actual/predicted
+    reduction ratio.
 
     **Arguments:**
 
+    - `riemannian_hessian_builder`: Callable returning
+      ``(f, rgrad, hessian)`` on the sphere chart at ``y_sphere``; the Hessian
+      is a :class:`lineax.AbstractLinearOperator` already in its
+      projection-sandwiched Riemannian form.
     - `gtol`: Riemannian gradient-norm tolerance for convergence.
     - `initial_radius`: Starting trust-region radius.
     - `max_radius`: Maximum trust-region radius.
@@ -122,12 +70,6 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
     - `rtol`, `atol`, `norm`: Required by the Optimistix interface; RTR uses
       gradient-norm termination instead of Cauchy conditions.
     - `verbose`: If `True` or a callable, emit per-step diagnostics.
-
-    Supports the following ``options`` key:
-
-    - ``autodiff_mode``: ``"fwd"`` or ``"bwd"`` (default). Controls whether the
-      gradient is computed via forward- or reverse-mode autodifferentiation;
-      HVPs always use forward-over-{fwd|bwd} AD off the linearised gradient.
     """
 
     rtol: float
@@ -144,9 +86,11 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
     subproblem_rtol: float = eqx.field(static=True)
     min_x: float = eqx.field(static=True)
     verbose: Callable[..., None]
+    riemannian_hessian_builder: RiemannianHessianBuilder = eqx.field(static=True)
 
     def __init__(
         self,
+        riemannian_hessian_builder: RiemannianHessianBuilder,
         *,
         gtol: float = 1e-7,
         initial_radius: float = 0.125,
@@ -177,6 +121,7 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
         self.atol = atol
         self.norm = norm
         self.verbose = default_verbose(verbose)
+        self.riemannian_hessian_builder = riemannian_hessian_builder
 
     def init(self, fn, y, args, options, f_struct, aux_struct, tags):
         del fn, y, args, options, f_struct, aux_struct, tags
@@ -186,19 +131,12 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
         )
 
     def step(self, fn, y, args, options, state, tags):
-        del tags
-        autodiff_mode = options.get("autodiff_mode", "bwd")
+        del fn, options, tags
         min_x = self.min_x
         y_sphere = simplex_to_sphere(y, eps=min_x)
+        pi = sphere_to_simplex(y_sphere, eps=min_x)
 
-        # Minimisation objective on the sphere chart.
-        def sphere_obj(y_s: Array) -> Array:
-            pi = sphere_to_simplex(y_s, eps=min_x)
-            f_min, _ = fn(pi, args)
-            return f_min
-
-        f = sphere_obj(y_sphere)
-        rgrad, hessian = _riemannian_grad_hessian(sphere_obj, y_sphere, autodiff_mode=autodiff_mode)
+        f, rgrad, hessian = self.riemannian_hessian_builder(y_sphere, pi, args)
         gnorm = jnp.linalg.norm(rgrad)
 
         # Eisenstat-Walker forcing sequence so the inner solve tightens as the
@@ -240,7 +178,8 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
                 return y, jnp.maximum(state.radius * self.shrink_factor, min_radius)
 
             def assess(_: None) -> tuple[Array, Array]:
-                f_trial = sphere_obj(y_trial_sphere)
+                pi_trial = sphere_to_simplex(y_trial_sphere, eps=min_x)
+                f_trial, _rg_trial, _H_trial = self.riemannian_hessian_builder(y_trial_sphere, pi_trial, args)
                 actual_reduction = f - f_trial
                 rho = actual_reduction / pred_reduction
                 accepted = rho > self.eta_accept
@@ -286,4 +225,4 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
         return y, aux, {}
 
 
-__all__ = ["RiemannianTrustRegion"]
+__all__ = ["RiemannianHessianBuilder", "RiemannianTrustRegion"]

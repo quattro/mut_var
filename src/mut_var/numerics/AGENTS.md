@@ -14,7 +14,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - `simulate_mixture_data(n_rows, seed, config) -> Solution`
 - **Guarantees**:
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths and are JIT-safe under `jax.jit` for valid array inputs.
-  - Baseline/refit optimization is full-batch and routed through Optimistix (`MutVarSolver` with backtracking line search).
+  - Baseline/refit optimization is full-batch and routed through Optimistix. The solver is selected by `InferenceConfig.solver`: `"rgd"` (default) uses `RiemannianGradientDescent` (steepest descent + backtracking Armijo line search on the simplex) and `"rtr"` uses `RiemannianTrustRegion` with an analytic gradient/Hessian builder and TruncatedCG subsolver.
   - Baseline and refit objectives are JIT-staged with `equinox.filter_jit`.
   - Optional `verbose` controls (bool/callable) emit solver diagnostics from the Optimistix-compatible solver step path.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.
@@ -37,7 +37,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 ## Key Decisions
 - Optimistix solver adapters live under `_solver/` (gradient descent, trust region, truncated CG).
 - SGD/minibatch paths were removed; full-batch is the only supported optimization mode.
-- `MutVarSolver` centralizes result mapping from `optx.RESULTS` to `mut_var.types.RESULTS`.
+- `map_optimistix_result` centralizes result mapping from `optx.RESULTS` to `mut_var.types.RESULTS`.
 - `baseline.py` and `refit.py` were merged into `mixture_fit.py`; the likelihood matrix is pre-computed once in `prepare_fit_state`.
 - Solver-step diagnostics are surfaced through explicit Optimistix-style `verbose` controls on solver APIs.
 
@@ -50,7 +50,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 
 ## Key Files
 - `src/mut_var/numerics/mixture_fit.py` - pi-only solver: `prepare_fit_state`, `fit_baseline`, `fit_refit_step`, `FitState`, `Params`.
-- `src/mut_var/numerics/_solver/` - Optimistix solver adapters (`_gradient.py` for `RiemannianGradientDescent` / `MutVarSolver`, `_trust_region.py` for `RiemannianTrustRegion`, `_truncated_cg.py` for the trust-region subsolver, `_common.py` for shared helpers).
+- `src/mut_var/numerics/_solver/` - Optimistix solver adapters (`_gradient.py` for `RiemannianGradientDescent` and the `RiemannianSteepestDescent` primitive, `_trust_region.py` for `RiemannianTrustRegion`, `_truncated_cg.py` for the trust-region subsolver, `_common.py` for shared helpers).
 - `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.
 

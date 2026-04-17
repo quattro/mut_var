@@ -66,7 +66,7 @@ def simplex_tangent_direction(pi: Array, direction: Array) -> Array:
 def exponential_map_simplex(
     pi: Array,
     tangent_direction: Array,
-    step_size: float,
+    step_size: ArrayLike,
 ) -> Array:
     r"""Move simplex parameters along a Fisher-Rao tangent via the unit-sphere chart.
 

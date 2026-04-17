@@ -6,13 +6,18 @@ from typing import Any, cast, NamedTuple
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import lineax as lx
 import optimistix as optx
 
 from jax.scipy.special import xlogy
 from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
-from mut_var.numerics._solver import map_optimistix_result, MutVarSolver, RiemannianTrustRegion
+from mut_var.numerics._solver import (
+    map_optimistix_result,
+    RiemannianGradientDescent,
+    RiemannianTrustRegion,
+)
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_nonfinite,
@@ -22,7 +27,33 @@ from mut_var.types import InferenceConfig, RESULTS, Solution
 
 _DEFAULT_STEP_SIZE: float = 0.01
 _DEFAULT_PENALTY: float = 1.0
-_DEFAULT_TAU: float = 25.0
+
+
+def _pi_step(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
+    # Move downhill: flip sign once here so the stored descent state carries
+    # the raw gradient and logs read in one consistent direction.
+    tangent = simplex_tangent_direction(pi, -grad)
+    return exponential_map_simplex(pi, tangent, step_size)
+
+
+def _build_solver(
+    config: InferenceConfig,
+    hessian_builder: Any,
+    verbose: bool | Any,
+) -> optx.AbstractMinimiser:
+    if config.solver == "rtr":
+        return RiemannianTrustRegion(
+            hessian_builder,
+            gtol=config.tol,
+            verbose=verbose,
+        )
+    return RiemannianGradientDescent(
+        step_update=_pi_step,
+        step_size=_DEFAULT_STEP_SIZE,
+        rtol=config.tol,
+        atol=config.tol,
+        verbose=verbose,
+    )
 
 
 class Params(NamedTuple):
@@ -100,11 +131,73 @@ def prepare_fit_state(
     return Solution(value=state, result=RESULTS.successful, stats=None, state=None)
 
 
-def _pi_step(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
-    # Move downhill: flip sign once here so the stored descent state carries
-    # the raw gradient and logs read in one consistent direction.
-    tangent = simplex_tangent_direction(pi, -grad)
-    return exponential_map_simplex(pi, tangent, step_size)
+def _mixture_rgrad_riemannian_hessian(
+    y_sphere: Array,
+    pi: Array,
+    L: Array,
+    alpha: Array,
+) -> tuple[Array, Array, lx.MatrixLinearOperator]:
+    r"""Analytic Riemannian gradient and Hessian on the sphere chart.
+
+    For $F(\pi) = -\sum_n \log(L\pi)_n - \sum_k (\alpha_k-1) \log \pi_k$
+    (MAP objective, Dirichlet log-prior with inward sign), the Euclidean
+    Hessian factors as a low-rank-plus-diagonal form
+    $\mathrm{Hess}_\pi F = L^\top D L + \mathrm{diag}((\alpha-1)/\pi^2)$
+    with $D = \mathrm{diag}(1/(L\pi)^2)$. Lifting through $\pi = y^2$ gives a
+    dense $k \times k$ sphere-chart Euclidean Hessian, and the projection
+    sandwich $\mathrm{Hess}_R f(v) = P_y H_E P_y v - \langle y, \nabla_y f\rangle P_y v$
+    collapses to a fully materialised $k \times k$ symmetric matrix. The heavy
+    $n$-sized matmul $G = L^\top D L$ happens once per outer step and is shared
+    with the gradient ($L^\top r$), so every inner TruncatedCG HVP is an
+    $O(k^2)$ dense matvec and no extra autodiff pass is needed for the gradient.
+    """
+    tiny = jnp.finfo(jnp.float64).tiny
+    Lpi = jnp.clip(L @ pi, min=tiny)
+    log_Lpi = jnp.log(Lpi)
+    f = -(jnp.sum(log_Lpi) + jnp.sum(xlogy(alpha - 1.0, pi)))
+    r = 1.0 / Lpi
+    D = r * r
+    # Gram G = L^T D L is the only expensive $n$-sized matmul per outer step.
+    # Identity: L^T r = G @ pi, since L @ pi = 1/r, so G @ pi = L^T (D Lpi)
+    # = L^T (r^2 / r) = L^T r. Costs $k^2$ instead of an extra $n k$ matvec.
+    G = L.T @ (D[:, None] * L)
+    Lt_r = G @ pi
+    pen_diag = (alpha - 1.0) / pi
+    g_pi = -Lt_r - pen_diag
+    ge = 2.0 * y_sphere * g_pi
+    rgrad = ge - jnp.dot(y_sphere, ge) * y_sphere
+    y_ge_dot = jnp.dot(y_sphere, ge)
+    diag_total = -2.0 * Lt_r + 2.0 * pen_diag
+
+    H_E = jnp.diag(diag_total) + 4.0 * (y_sphere[:, None] * G * y_sphere[None, :])
+    k = y_sphere.shape[0]
+    P_y = jnp.eye(k, dtype=y_sphere.dtype) - jnp.outer(y_sphere, y_sphere)
+    H_R = P_y @ H_E @ P_y - y_ge_dot * P_y
+
+    return f, rgrad, lx.MatrixLinearOperator(H_R, tags=frozenset({lx.symmetric_tag}))
+
+
+def _baseline_hessian_builder(y_sphere: Array, pi: Array, args: Any) -> tuple[Array, Array, lx.AbstractLinearOperator]:
+    L, alpha = args
+    return _mixture_rgrad_riemannian_hessian(y_sphere, pi, L, alpha)
+
+
+def _ordering_penalty(pi: Array, prev_pi: Array, penalty: float) -> Array:
+    c1 = prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]
+    p1 = jnp.sum(jax.nn.relu(c1))
+    c2 = prev_pi[0] - pi[0]
+    rel_point_mass_dist = jax.nn.relu(c2)
+    return penalty * (p1 + rel_point_mass_dist)
+
+
+def _refit_hessian_builder(y_sphere: Array, pi: Array, args: Any) -> tuple[Array, Array, lx.AbstractLinearOperator]:
+    # The ReLU ordering penalty is omitted from the Hessian (non-smooth and
+    # small away from the active set). We include it in `f` so the TR
+    # actual/predicted reduction ratio reflects the full refit objective.
+    L_sub, prev_pi, alpha = args
+    f_mix, rg, H = _mixture_rgrad_riemannian_hessian(y_sphere, pi, L_sub, alpha)
+    f = f_mix + _ordering_penalty(pi, prev_pi, _DEFAULT_PENALTY)
+    return f, rg, H
 
 
 def _result_from_objective_value(
@@ -126,8 +219,8 @@ def _result_from_objective_value(
 def _baseline_objective(pi: Array, L: Array, alpha: Array) -> Array:
     mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(jnp.float64).tiny)
     log_likelihood = jnp.sum(jnp.log(mixture_pdf))
-    log_penalty = jnp.sum(xlogy(alpha - 1.0, pi))
-    return -(log_likelihood - log_penalty)
+    log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
+    return -(log_likelihood + log_prior)
 
 
 _baseline_obj_jit = eqx.filter_jit(_baseline_objective)
@@ -163,16 +256,7 @@ def fit_baseline(
     k = pi_init.shape[0]
     alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
 
-    if config.solver == "rtr":
-        solver: optx.AbstractMinimiser = RiemannianTrustRegion(gtol=config.tol, verbose=verbose)
-    else:
-        solver = MutVarSolver(
-            step_update=_pi_step,
-            step_size=_DEFAULT_STEP_SIZE,
-            rtol=config.tol,
-            atol=config.tol,
-            verbose=verbose,
-        )
+    solver = _build_solver(config, _baseline_hessian_builder, verbose)
     optx_solution = optx.minimise(
         fn=_neg_baseline_obj,
         solver=solver,
@@ -202,13 +286,8 @@ def _refit_objective(
 ) -> Array:
     mixture_pdf = jnp.clip(L_sub @ pi, min=jnp.finfo(jnp.float64).tiny)
     log_likelihood = jnp.sum(jnp.log(mixture_pdf))
-    log_penalty = jnp.sum(xlogy(alpha - 1.0, pi))
-    c1 = prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]
-    p1 = jnp.sum(jax.nn.softplus(_DEFAULT_TAU * c1) / _DEFAULT_TAU)
-    c2 = prev_pi[0] - pi[0]
-    rel_point_mass_dist = jax.nn.softplus(_DEFAULT_TAU * c2) / _DEFAULT_TAU
-    ordering_penalty = penalty * (p1 + rel_point_mass_dist)
-    return -(log_likelihood - log_penalty - ordering_penalty)
+    log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
+    return -(log_likelihood + log_prior) + _ordering_penalty(pi, prev_pi, penalty)
 
 
 _refit_obj_jit = eqx.filter_jit(_refit_objective)
@@ -254,16 +333,7 @@ def fit_refit_step(
     k = pi_init.shape[0]
     alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
 
-    if config.solver == "rtr":
-        solver: optx.AbstractMinimiser = RiemannianTrustRegion(gtol=config.tol, verbose=verbose)
-    else:
-        solver = MutVarSolver(
-            step_update=_pi_step,
-            step_size=_DEFAULT_STEP_SIZE,
-            rtol=config.tol,
-            atol=config.tol,
-            verbose=verbose,
-        )
+    solver = _build_solver(config, _refit_hessian_builder, verbose)
     optx_solution = optx.minimise(
         fn=_neg_refit_obj,
         solver=solver,

@@ -36,7 +36,7 @@ class InferenceConfig(NamedTuple):
     max_iter: int = 100
     tol: float = 1e-3
     filter_threshold: float = 1e-8
-    solver: str = "optimistix"
+    solver: str = "rgd"
 
 
 jax.tree_util.register_static(InferenceConfig)
