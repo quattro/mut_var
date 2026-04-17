@@ -5,6 +5,7 @@ data/
 site/
 
 tmp
+tmp.*
 *.png
 
 # Temporary and binary files
