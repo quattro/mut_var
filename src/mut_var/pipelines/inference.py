@@ -8,8 +8,10 @@ from collections.abc import Callable
 # Reason: preserves compatibility while consolidating numerics and orchestration entrypoints.
 from typing import Any, Mapping, TYPE_CHECKING
 
+import jax
 import jax.debug as jdb
 import jax.numpy as jnp
+import numpy as np
 import polars as pl
 
 from jaxtyping import ArrayLike
@@ -17,7 +19,6 @@ from jaxtyping import ArrayLike
 import mut_var.numerics.mixture_fit as mixture_fit
 
 from mut_var.io import (
-    build_maf_masks,
     load_inference_arrays,
     payload_to_long_dataframe,
     validate_maf_grid,
@@ -41,31 +42,43 @@ def _filter_components(params: Params, threshold: float) -> Params:
     )
 
 
-def _build_long_payload(models: list[Params], maf_grid: ArrayLike, af: ArrayLike) -> dict[str, Any]:
-    maf_arr = jnp.asarray(maf_grid, dtype=jnp.float64)
-    af_arr = jnp.asarray(af, dtype=jnp.float64)
+def _maf_subset_mask(af: ArrayLike, threshold: float) -> jax.Array:
+    af_arr = jnp.asarray(af)
+    return jnp.logical_and(af_arr >= threshold, af_arr <= (1.0 - threshold))
 
-    empirical_min_maf = jnp.minimum(jnp.min(af_arr), 1.0 - jnp.max(af_arr))
-    maf_values = jnp.concatenate((jnp.asarray([empirical_min_maf], dtype=jnp.float64), maf_arr))
-    names = [f"pi{idx}" for idx in range(len(models))]
 
-    mu0 = jnp.asarray(jnp.pad(models[0].mu_k, (1, 0)), dtype=jnp.float64)
-    var0 = jnp.asarray(jnp.pad(models[0].var_k, (1, 0)), dtype=jnp.float64)
+def _build_long_dataframe(
+    pi_rows: list[ArrayLike],
+    maf_grid: ArrayLike,
+    af: ArrayLike,
+    mu_k: ArrayLike,
+    var_k: ArrayLike,
+) -> pl.DataFrame:
+    maf_arr = jnp.asarray(maf_grid)
+    af_arr = jnp.asarray(af)
 
-    if any(model.pi.shape[0] != mu0.shape[0] for model in models):
+    empirical_min_maf = float(jnp.minimum(jnp.min(af_arr), 1.0 - jnp.max(af_arr)))
+    maf_values = np.concatenate(([empirical_min_maf], np.asarray(maf_arr)))
+    mu0 = np.asarray(jnp.pad(jnp.asarray(mu_k), (1, 0)))
+    var0 = np.asarray(jnp.pad(jnp.asarray(var_k), (1, 0)))
+    n_models = len(pi_rows)
+
+    if any(jnp.asarray(pi).shape[0] != mu0.shape[0] for pi in pi_rows):
         raise ValueError("All models must keep the same number of mixture components.")
 
-    values = jnp.concatenate([jnp.asarray(model.pi, dtype=jnp.float64) for model in models])
+    values = np.concatenate([np.asarray(jnp.asarray(pi)) for pi in pi_rows])
     n_comp = int(mu0.shape[0])
-    name_values = [name for name in names for _ in range(n_comp)]
+    name_values = [f"pi{idx}" for idx in range(n_models) for _ in range(n_comp)]
 
-    return {
-        "mu0": jnp.tile(mu0, len(models)),
-        "var0": jnp.tile(var0, len(models)),
-        "maf": jnp.repeat(maf_values, n_comp),
-        "name": name_values,
-        "value": values,
-    }
+    return pl.DataFrame(
+        {
+            "mu0": np.tile(mu0, n_models),
+            "var0": np.tile(var0, n_models),
+            "maf": np.repeat(maf_values, n_comp),
+            "name": name_values,
+            "value": values,
+        }
+    ).select(["mu0", "var0", "maf", "name", "value"])
 
 
 def _reason_from_solution(solution: Solution) -> str:
@@ -76,15 +89,15 @@ def _reason_from_solution(solution: Solution) -> str:
     return f"inference failed with status '{RESULTS[solution.result]}'."
 
 
-def _payload_from_solution(solution: Solution) -> Mapping[str, object]:
+def _payload_from_solution(solution: Solution) -> Mapping[str, object] | pl.DataFrame:
     if solution.result not in (RESULTS.successful, RESULTS.max_steps_reached):
         reason = _reason_from_solution(solution)
         if solution.result in (RESULTS.invalid_input, RESULTS.empty_subset):
             raise ValueError(reason)
         raise RuntimeError(reason)
 
-    if not isinstance(solution.value, Mapping):
-        raise ValueError("inference payload must be a mapping.")
+    if not isinstance(solution.value, (Mapping, pl.DataFrame)):
+        raise ValueError("inference payload must be a mapping or dataframe.")
 
     return solution.value
 
@@ -167,10 +180,9 @@ def run_inference_pipeline(
 
     workflow_log.info("inference pipeline: building maf grid and masks")
     maf_grid = jnp.exp(jnp.linspace(jnp.log(lowest), jnp.log(highest), num_breaks))
-    maf_masks = build_maf_masks(arrays.af, maf_grid)
     workflow_log.info("inference pipeline: starting numerics")
-    beta_hat = jnp.asarray(arrays.beta_hat, dtype=jnp.float64)
-    s2 = jnp.asarray(arrays.s2, dtype=jnp.float64)
+    beta_hat = jnp.asarray(arrays.beta_hat)
+    s2 = jnp.asarray(arrays.s2)
     inference_config = config if config is not None else InferenceConfig(num_clusters=30)
 
     workflow_log.info("inference pipeline: preparing fit state")
@@ -201,15 +213,15 @@ def run_inference_pipeline(
             L_filtered = state.likelihood_matrix[:, keep]
 
             workflow_log.info("inference pipeline: fitting refit grid")
-            models: list[Params] = [filtered]
+            pi_rows: list[jax.Array] = [filtered.pi]
             prev_params = filtered
             step_results: list[RESULTS] = []
             solution = baseline_solution
-            for idx in range(int(maf_masks.shape[0])):
-                mask = maf_masks[idx].astype(bool)
-                L_sub = L_filtered[mask, :]
-                step_sol = mixture_fit.fit_refit_step(
-                    L_sub,
+            for threshold in np.asarray(maf_grid):
+                mask = _maf_subset_mask(arrays.af, float(threshold))
+                step_sol = mixture_fit.fit_refit_masked_step(
+                    L_filtered,
+                    mask,
                     prev_params,
                     inference_config,
                     verbose=_solver_debug_callback(workflow_log, "refit"),
@@ -219,7 +231,7 @@ def run_inference_pipeline(
                     solution = step_sol
                     break
                 prev_params = step_sol.value
-                models.append(prev_params)
+                pi_rows.append(prev_params.pi)
             else:
                 refit_result = merge_recoverable_results(*step_results)
                 workflow_log.info(
@@ -235,13 +247,18 @@ def run_inference_pipeline(
                     )
                 else:
                     workflow_log.info("inference pipeline: building numerics payload")
-                    numerics_payload = _build_long_payload(models, maf_grid=maf_grid, af=arrays.af)
                     solution = Solution(
-                        value=numerics_payload,
+                        value=_build_long_dataframe(
+                            pi_rows,
+                            maf_grid=maf_grid,
+                            af=arrays.af,
+                            mu_k=filtered.mu_k,
+                            var_k=filtered.var_k,
+                        ),
                         result=merge_recoverable_results(baseline_solution.result, refit_result),
                         stats={
-                            "num_models": len(models),
-                            "num_components": int(models[0].pi.shape[0]),
+                            "num_models": len(pi_rows),
+                            "num_components": int(pi_rows[0].shape[0]),
                             "baseline": baseline_solution.stats,
                         },
                         state=None,

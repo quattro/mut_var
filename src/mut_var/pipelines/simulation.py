@@ -28,6 +28,28 @@ def _to_numpy(values: jnp.ndarray | object, dtype: np.dtype) -> np.ndarray:
     return np.asarray(jnp.asarray(values), dtype=dtype)
 
 
+class _SimulationColumns(NamedTuple):
+    row_id: np.ndarray
+    af: np.ndarray
+    component: np.ndarray
+    beta_true: np.ndarray
+    sigma2: np.ndarray
+    se: np.ndarray
+    beta_hat: np.ndarray
+
+
+def _simulation_columns(arrays: SimulationArrays) -> _SimulationColumns:
+    return _SimulationColumns(
+        row_id=_to_numpy(arrays.row_id, np.int64),
+        af=_to_numpy(arrays.af, np.float64),
+        component=_to_numpy(arrays.component, np.int64),
+        beta_true=_to_numpy(arrays.beta_true, np.float64),
+        sigma2=_to_numpy(arrays.sigma2, np.float64),
+        se=_to_numpy(arrays.se, np.float64),
+        beta_hat=_to_numpy(arrays.beta_hat, np.float64),
+    )
+
+
 def _pipeline_reason(solution: Solution) -> str:
     if isinstance(solution.stats, dict):
         reason = solution.stats.get("reason")
@@ -36,14 +58,14 @@ def _pipeline_reason(solution: Solution) -> str:
     return f"simulation failed with status '{RESULTS[solution.result]}'."
 
 
-def _truth_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
+def _truth_dataframe(columns: _SimulationColumns) -> pl.DataFrame:
     return pl.DataFrame(
         {
-            "row_id": _to_numpy(arrays.row_id, np.int64),
-            "component": _to_numpy(arrays.component, np.int64),
-            "beta_true": _to_numpy(arrays.beta_true, np.float64),
-            "sigma2": _to_numpy(arrays.sigma2, np.float64),
-            "effect_allele_frequency": _to_numpy(arrays.af, np.float64),
+            "row_id": columns.row_id,
+            "component": columns.component,
+            "beta_true": columns.beta_true,
+            "sigma2": columns.sigma2,
+            "effect_allele_frequency": columns.af,
         }
     ).select(
         [
@@ -56,13 +78,13 @@ def _truth_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
     )
 
 
-def _observed_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
+def _observed_dataframe(columns: _SimulationColumns) -> pl.DataFrame:
     return pl.DataFrame(
         {
-            "row_id": _to_numpy(arrays.row_id, np.int64),
-            "effect_allele_frequency": _to_numpy(arrays.af, np.float64),
-            "beta": _to_numpy(arrays.beta_hat, np.float64),
-            "standard_error": _to_numpy(arrays.se, np.float64),
+            "row_id": columns.row_id,
+            "effect_allele_frequency": columns.af,
+            "beta": columns.beta_hat,
+            "standard_error": columns.se,
         }
     ).select(
         [
@@ -75,11 +97,10 @@ def _observed_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
 
 
 def _metadata_dataframe(
-    arrays: SimulationArrays,
+    truth_df: pl.DataFrame,
     config: SimulationPipelineConfig,
     numerics: SimulationNumericsConfig,
 ) -> pl.DataFrame:
-    truth_df = _truth_dataframe(arrays)
     with_deciles = truth_df.with_columns(
         (
             ((pl.col("effect_allele_frequency").rank("ordinal") - 1) * 10.0 / pl.len())
@@ -171,9 +192,10 @@ def run_simulation_pipeline(
 
     workflow_log.info("simulation pipeline: preparing artifacts")
     arrays = solution.value
-    truth_df = _truth_dataframe(arrays)
-    observed_df = _observed_dataframe(arrays)
-    metadata_df = _metadata_dataframe(arrays, config, effective_numerics)
+    columns = _simulation_columns(arrays)
+    truth_df = _truth_dataframe(columns)
+    observed_df = _observed_dataframe(columns)
+    metadata_df = _metadata_dataframe(truth_df, config, effective_numerics)
     return SimulationArtifacts(
         truth=truth_df,
         observed=observed_df,

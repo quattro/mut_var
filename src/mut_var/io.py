@@ -8,6 +8,7 @@ from typing import Any, Mapping, NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import polars as pl
 
 from jaxtyping import ArrayLike
@@ -80,12 +81,15 @@ def build_maf_masks(af: jax.Array, maf_grid: jax.Array) -> jax.Array:
 
 def payload_to_long_dataframe(payload: Mapping[str, object]) -> pl.DataFrame:
     r"""Normalize numerics payload mappings into the long-format output dataframe."""
+    if isinstance(payload, pl.DataFrame):
+        return payload.select(["mu0", "var0", "maf", "name", "value"])
+
     columns = {}
     for name, values in payload.items():
         if isinstance(values, (list, tuple)):
             columns[name] = values
         else:
-            columns[name] = jnp.asarray(values).tolist()
+            columns[name] = np.asarray(jnp.asarray(values))
     df = pl.DataFrame(columns)
     return df.select(["mu0", "var0", "maf", "name", "value"])
 
@@ -116,10 +120,11 @@ def load_inference_arrays(
     - `ValueError`: Validation failed (missing columns, non-numeric values, domain violations).
     """
     df = read_sumstats(path)
-    validate_required_columns(df, af_col, beta_col, se_col)
-    validate_numeric_columns(df, af_col, beta_col, se_col)
-    validate_sumstats_domain(df, af_col, se_col)
-    return to_inference_arrays(df, af_col, beta_col, se_col)
+    af, beta_hat, std_err = _validated_numeric_series(df, af_col, beta_col, se_col)
+    af_arr = jnp.asarray(af.to_jax())
+    beta_arr = jnp.asarray(beta_hat.to_jax())
+    se_arr = jnp.asarray(std_err.to_jax())
+    return InferenceArrays(af=af_arr, beta_hat=beta_arr, s2=se_arr**2)
 
 
 def validate_required_columns(
@@ -180,6 +185,28 @@ def validate_sumstats_domain(df: pl.DataFrame, af_col: str, se_col: str) -> None
     se_nonpositive = int((se <= 0.0).sum())
     if se_nonpositive > 0:
         raise ValueError(f"Column '{se_col}' must be strictly positive. Found {se_nonpositive} non-positive row(s).")
+
+
+def _validated_numeric_series(
+    df: pl.DataFrame,
+    af_col: str,
+    beta_col: str,
+    se_col: str,
+) -> tuple[pl.Series, pl.Series, pl.Series]:
+    validate_required_columns(df, af_col, beta_col, se_col)
+    af = _as_numeric_column(df, af_col)
+    beta_hat = _as_numeric_column(df, beta_col)
+    std_err = _as_numeric_column(df, se_col)
+
+    af_oor = int(((af < 0.0) | (af > 1.0)).sum())
+    if af_oor > 0:
+        raise ValueError(f"Column '{af_col}' must be within [0, 1]. Found {af_oor} out-of-range row(s).")
+
+    se_nonpositive = int((std_err <= 0.0).sum())
+    if se_nonpositive > 0:
+        raise ValueError(f"Column '{se_col}' must be strictly positive. Found {se_nonpositive} non-positive row(s).")
+
+    return af, beta_hat, std_err
 
 
 def validate_maf_grid(lowest: Any, highest: Any, num_breaks: Any) -> None:

@@ -94,7 +94,7 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_pat
 
     monkeypatch.setattr(
         mixture_fit_module,
-        "fit_refit_step",
+        "fit_refit_masked_step",
         lambda *_args, **_kwargs: Solution(
             value=None,
             result=RESULTS.empty_subset,

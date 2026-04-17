@@ -12,9 +12,11 @@ from mut_var.numerics._solver._trust_region import (
 )
 from mut_var.numerics._solver_utils import simplex_to_sphere, sphere_to_simplex
 from mut_var.numerics.mixture_fit import (
+    _DEFAULT_PENALTY,
     _refit_hessian_builder,
     _refit_objective,
     fit_baseline,
+    fit_refit_masked_step,
     fit_refit_step,
     FitState,
     Params,
@@ -95,6 +97,30 @@ def test_fit_refit_step_pi_sums_to_one_and_mu_var_unchanged(synthetic_arrays):
     assert jnp.allclose(solution.value.var_k, prev_params.var_k)
 
 
+def test_fit_refit_masked_step_matches_sliced_refit(synthetic_arrays):
+    beta, s2 = synthetic_arrays
+    config = InferenceConfig(num_clusters=3, max_iter=10)
+
+    state_solution = prepare_fit_state(beta, s2, config)
+    assert state_solution.result == RESULTS.successful
+
+    prev_params = Params(
+        pi=jnp.asarray([0.8, 0.15, 0.05], dtype=jnp.float64),
+        mu_k=state_solution.value.initial_params.mu_k,
+        var_k=state_solution.value.initial_params.var_k,
+    )
+    mask = jnp.asarray([True] * 25 + [False] * (state_solution.value.likelihood_matrix.shape[0] - 25))
+    l_sub = state_solution.value.likelihood_matrix[mask, :]
+
+    sliced = fit_refit_step(l_sub, prev_params, config)
+    masked = fit_refit_masked_step(state_solution.value.likelihood_matrix, mask, prev_params, config)
+
+    assert sliced.result == masked.result
+    assert jnp.allclose(sliced.value.pi, masked.value.pi, rtol=1e-8, atol=1e-8)
+    assert jnp.allclose(sliced.value.mu_k, masked.value.mu_k)
+    assert jnp.allclose(sliced.value.var_k, masked.value.var_k)
+
+
 def test_rtr_baseline_makes_progress(synthetic_arrays):
     # Regression: RTR pred_gain sign bug caused the solver to reject every step
     # (radius shrank to zero, objective never changed, Accepted=False throughout).
@@ -132,7 +158,7 @@ def test_rtr_refit_builder_gradient_matches_penalized_objective():
 
     def penalized_refit_on_sphere(y_sphere):
         pi_sphere = sphere_to_simplex(y_sphere)
-        return _refit_objective(pi_sphere, l_sub, prev_pi, alpha, 1.0)
+        return _refit_objective(pi_sphere, l_sub, prev_pi, alpha, _DEFAULT_PENALTY)
 
     autodiff_grad = jax.grad(penalized_refit_on_sphere)(y)
     autodiff_rgrad = autodiff_grad - jnp.dot(y, autodiff_grad) * y

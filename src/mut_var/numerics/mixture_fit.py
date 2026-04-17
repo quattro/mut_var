@@ -67,7 +67,12 @@ class FitState(NamedTuple):
     initial_params: Params
 
 
-def _pdf(beta_hat, s2, mean, var_k):
+def _pdf(
+    beta_hat,
+    s2,
+    mean,
+    var_k,
+):
     return norm.pdf(beta_hat, loc=mean, scale=jnp.sqrt(s2 + var_k))
 
 
@@ -104,8 +109,8 @@ def prepare_fit_state(
     - `Solution` with `FitState` on success. Status codes:
       `RESULTS.successful`, `RESULTS.invalid_input`, `RESULTS.empty_subset`.
     """
-    beta_hat_arr = jnp.asarray(beta_hat, dtype=jnp.float64)
-    s2_arr = jnp.asarray(s2, dtype=jnp.float64)
+    beta_hat_arr = jnp.asarray(beta_hat)
+    s2_arr = jnp.asarray(s2)
 
     std_err = jnp.sqrt(s2_arr)
     min_val = jnp.min(std_err) / 10.0
@@ -118,11 +123,11 @@ def prepare_fit_state(
         max_val = 8.0 * min_val
 
     k = config.num_clusters
-    mu_k = jnp.zeros(k - 1, dtype=jnp.float64)
+    mu_k = jnp.zeros(k - 1)
     var_k = jnp.exp(jnp.linspace(jnp.log(min_val), jnp.log(max_val), k - 1)) ** 2
 
     likelihood_matrix = _compute_likelihood_matrix(beta_hat_arr, s2_arr, mu_k, var_k)
-    pi = jnp.ones(k, dtype=jnp.float64) / k
+    pi = jnp.ones(k) / k
 
     state = FitState(
         likelihood_matrix=likelihood_matrix,
@@ -151,7 +156,7 @@ def _mixture_rgrad_riemannian_hessian(
     with the gradient ($L^\top r$), so every inner TruncatedCG HVP is an
     $O(k^2)$ dense matvec and no extra autodiff pass is needed for the gradient.
     """
-    tiny = jnp.finfo(jnp.float64).tiny
+    tiny = jnp.finfo(L.dtype).tiny
     Lpi = jnp.clip(L @ pi, min=tiny)
     log_Lpi = jnp.log(Lpi)
     f = -(jnp.sum(log_Lpi) + jnp.sum(xlogy(alpha - 1.0, pi)))
@@ -177,12 +182,20 @@ def _mixture_rgrad_riemannian_hessian(
     return f, rgrad, lx.MatrixLinearOperator(H_R, tags=frozenset({lx.symmetric_tag}))
 
 
-def _baseline_hessian_builder(y_sphere: Array, pi: Array, args: Any) -> tuple[Array, Array, lx.AbstractLinearOperator]:
+def _baseline_hessian_builder(
+    y_sphere: Array,
+    pi: Array,
+    args: Any,
+) -> tuple[Array, Array, lx.AbstractLinearOperator]:
     L, alpha = args
     return _mixture_rgrad_riemannian_hessian(y_sphere, pi, L, alpha)
 
 
-def _ordering_penalty(pi: Array, prev_pi: Array, penalty: float) -> Array:
+def _ordering_penalty(
+    pi: Array,
+    prev_pi: Array,
+    penalty: float,
+) -> Array:
     c1 = prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]
     p1 = jnp.sum(jax.nn.relu(c1))
     c2 = prev_pi[0] - pi[0]
@@ -190,7 +203,11 @@ def _ordering_penalty(pi: Array, prev_pi: Array, penalty: float) -> Array:
     return penalty * (p1 + rel_point_mass_dist)
 
 
-def _ordering_penalty_pi_subgradient(pi: Array, prev_pi: Array, penalty: float) -> Array:
+def _ordering_penalty_pi_subgradient(
+    pi: Array,
+    prev_pi: Array,
+    penalty: float,
+) -> Array:
     """Piecewise-linear subgradient of the ordering penalty in simplex coordinates."""
     active_c1 = (prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]) > 0.0
     grad = jnp.zeros_like(pi)
@@ -201,12 +218,59 @@ def _ordering_penalty_pi_subgradient(pi: Array, prev_pi: Array, penalty: float) 
     return grad
 
 
-def _refit_hessian_builder(y_sphere: Array, pi: Array, args: Any) -> tuple[Array, Array, lx.AbstractLinearOperator]:
+def _refit_hessian_builder(
+    y_sphere: Array,
+    pi: Array,
+    args: Any,
+) -> tuple[Array, Array, lx.AbstractLinearOperator]:
     # The ReLU ordering penalty contributes a piecewise-constant subgradient.
     # We include that in the trust-region gradient so the step direction matches
     # the penalized refit objective, but still omit the nonsmooth Hessian term.
     L_sub, prev_pi, alpha = args
     f_mix, rg, H = _mixture_rgrad_riemannian_hessian(y_sphere, pi, L_sub, alpha)
+    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, _DEFAULT_PENALTY)
+    penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
+    penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
+    f = f_mix + _ordering_penalty(pi, prev_pi, _DEFAULT_PENALTY)
+    return f, rg + penalty_rgrad, H
+
+
+def _weighted_mixture_rgrad_riemannian_hessian(
+    y_sphere: Array,
+    pi: Array,
+    L: Array,
+    row_weights: Array,
+    alpha: Array,
+) -> tuple[Array, Array, lx.MatrixLinearOperator]:
+    tiny = jnp.finfo(L.dtype).tiny
+    Lpi = jnp.clip(L @ pi, min=tiny)
+    log_Lpi = jnp.log(Lpi)
+    f = -(jnp.sum(row_weights * log_Lpi) + jnp.sum(xlogy(alpha - 1.0, pi)))
+    r = row_weights / Lpi
+    D = row_weights / (Lpi * Lpi)
+    G = L.T @ (D[:, None] * L)
+    Lt_r = L.T @ r
+    pen_diag = (alpha - 1.0) / pi
+    g_pi = -Lt_r - pen_diag
+    ge = 2.0 * y_sphere * g_pi
+    rgrad = ge - jnp.dot(y_sphere, ge) * y_sphere
+    y_ge_dot = jnp.dot(y_sphere, ge)
+    diag_total = -2.0 * Lt_r + 2.0 * pen_diag
+
+    H_E = jnp.diag(diag_total) + 4.0 * (y_sphere[:, None] * G * y_sphere[None, :])
+    k = y_sphere.shape[0]
+    P_y = jnp.eye(k, dtype=y_sphere.dtype) - jnp.outer(y_sphere, y_sphere)
+    H_R = P_y @ H_E @ P_y - y_ge_dot * P_y
+    return f, rgrad, lx.MatrixLinearOperator(H_R, tags=frozenset({lx.symmetric_tag}))
+
+
+def _masked_refit_hessian_builder(
+    y_sphere: Array,
+    pi: Array,
+    args: Any,
+) -> tuple[Array, Array, lx.AbstractLinearOperator]:
+    L, row_weights, prev_pi, alpha = args
+    f_mix, rg, H = _weighted_mixture_rgrad_riemannian_hessian(y_sphere, pi, L, row_weights, alpha)
     penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, _DEFAULT_PENALTY)
     penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
     penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
@@ -230,8 +294,12 @@ def _result_from_objective_value(
     )
 
 
-def _baseline_objective(pi: Array, L: Array, alpha: Array) -> Array:
-    mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(jnp.float64).tiny)
+def _baseline_objective(
+    pi: Array,
+    L: Array,
+    alpha: Array,
+) -> Array:
+    mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(L.dtype).tiny)
     log_likelihood = jnp.sum(jnp.log(mixture_pdf))
     log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
     return -(log_likelihood + log_prior)
@@ -266,9 +334,9 @@ def fit_baseline(
     """
     L = state.likelihood_matrix
     init_params = state.initial_params
-    pi_init = jnp.asarray(init_params.pi, dtype=jnp.float64)
+    pi_init = jnp.asarray(init_params.pi)
     k = pi_init.shape[0]
-    alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
+    alpha = jnp.array([10.0] + (k - 1) * [1.0])
 
     solver = _build_solver(config, _baseline_hessian_builder, verbose)
     optx_solution = optx.minimise(
@@ -298,7 +366,7 @@ def _refit_objective(
     alpha: Array,
     penalty: float,
 ) -> Array:
-    mixture_pdf = jnp.clip(L_sub @ pi, min=jnp.finfo(jnp.float64).tiny)
+    mixture_pdf = jnp.clip(L_sub @ pi, min=jnp.finfo(L_sub.dtype).tiny)
     log_likelihood = jnp.sum(jnp.log(mixture_pdf))
     log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
     return -(log_likelihood + log_prior) + _ordering_penalty(pi, prev_pi, penalty)
@@ -307,9 +375,32 @@ def _refit_objective(
 _refit_obj_jit = eqx.filter_jit(_refit_objective)
 
 
+def _masked_refit_objective(
+    pi: Array,
+    L: Array,
+    row_weights: Array,
+    prev_pi: Array,
+    alpha: Array,
+    penalty: float,
+) -> Array:
+    mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(L.dtype).tiny)
+    log_likelihood = jnp.sum(row_weights * jnp.log(mixture_pdf))
+    log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
+    return -(log_likelihood + log_prior) + _ordering_penalty(pi, prev_pi, penalty)
+
+
+_masked_refit_obj_jit = eqx.filter_jit(_masked_refit_objective)
+
+
 def _neg_refit_obj(pi: Array, args: tuple) -> Array:
     L_sub, prev_pi, alpha = args
     val = _refit_obj_jit(pi, L_sub, prev_pi, alpha, _DEFAULT_PENALTY)
+    return jnp.where(jnp.isfinite(val), val, jnp.inf)
+
+
+def _neg_masked_refit_obj(pi: Array, args: tuple) -> Array:
+    L, row_weights, prev_pi, alpha = args
+    val = _masked_refit_obj_jit(pi, L, row_weights, prev_pi, alpha, _DEFAULT_PENALTY)
     return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
 
@@ -333,8 +424,8 @@ def fit_refit_step(
     - `Solution` with `Params`. Status: `RESULTS.successful`, `RESULTS.max_steps_reached`,
       `RESULTS.empty_subset`, `RESULTS.nonfinite_objective`.
     """
-    L_arr = jnp.asarray(L_sub, dtype=jnp.float64)
-    pi_init = jnp.asarray(prev_params.pi, dtype=jnp.float64)
+    L_arr = jnp.asarray(L_sub)
+    pi_init = jnp.asarray(prev_params.pi)
 
     if L_arr.shape[0] == 0:
         return Solution(
@@ -345,7 +436,7 @@ def fit_refit_step(
         )
 
     k = pi_init.shape[0]
-    alpha = jnp.array([10.0] + (k - 1) * [1.0], dtype=jnp.float64)
+    alpha = jnp.array([10.0] + (k - 1) * [1.0])
 
     solver = _build_solver(config, _refit_hessian_builder, verbose)
     optx_solution = optx.minimise(
@@ -368,10 +459,55 @@ def fit_refit_step(
     )
 
 
+def fit_refit_masked_step(
+    L: ArrayLike,
+    row_mask: ArrayLike,
+    prev_params: Params,
+    config: InferenceConfig,
+    verbose: bool | Any = False,
+) -> Solution:
+    """Fit one refit step using a row mask over a cached likelihood matrix."""
+    L_arr = jnp.asarray(L)
+    row_weights = jnp.asarray(row_mask, dtype=L_arr.dtype)
+    pi_init = jnp.asarray(prev_params.pi)
+
+    if bool(jnp.sum(row_weights) == 0.0):
+        return Solution(
+            value=prev_params,
+            result=RESULTS.empty_subset,
+            stats={"reason": "row_mask selects no rows (empty MAF subset)"},
+            state=None,
+        )
+
+    k = pi_init.shape[0]
+    alpha = jnp.array([10.0] + (k - 1) * [1.0])
+
+    solver = _build_solver(config, _masked_refit_hessian_builder, verbose)
+    optx_solution = optx.minimise(
+        fn=_neg_masked_refit_obj,
+        solver=solver,
+        y0=pi_init,
+        args=(L_arr, row_weights, pi_init, alpha),
+        max_steps=config.max_iter,
+        throw=False,
+    )
+    pi_opt = optx_solution.value
+    objective_value = _masked_refit_obj_jit(pi_opt, L_arr, row_weights, pi_init, alpha, _DEFAULT_PENALTY)
+    result = _result_from_objective_value(objective_value, optx_solution.result)
+    n_steps = optx_solution.stats.get("num_steps")
+    return Solution(
+        value=Params(pi=pi_opt, mu_k=prev_params.mu_k, var_k=prev_params.var_k),
+        result=result,
+        stats={"n_steps": n_steps},
+        state=None,
+    )
+
+
 __all__ = [
     "FitState",
     "Params",
     "fit_baseline",
+    "fit_refit_masked_step",
     "fit_refit_step",
     "prepare_fit_state",
 ]
