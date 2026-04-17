@@ -26,7 +26,7 @@ from mut_var.numerics._solver_utils import (
 from mut_var.types import InferenceConfig, RESULTS, Solution
 
 _DEFAULT_STEP_SIZE: float = 0.05
-_DEFAULT_PENALTY: float = 1.0
+_DEFAULT_PENALTY: float = 100.0
 
 
 def _pi_step(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
