@@ -9,7 +9,7 @@ import optimistix as optx
 
 from jaxtyping import ArrayLike
 
-from mut_var.numerics._optimistix_solver import map_optimistix_result
+from mut_var.numerics._solver import map_optimistix_result
 from mut_var.types import RESULTS, Solution
 
 _MAF_EPS = 1e-12

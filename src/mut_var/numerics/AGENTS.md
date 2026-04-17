@@ -35,7 +35,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Keep public numerics surface exported through `src/mut_var/numerics/__init__.py`.
 
 ## Key Decisions
-- Shared Optimistix adapter (`_optimistix_solver.py`) replaces legacy `_optimize.py` loops.
+- Optimistix solver adapters live under `_solver/` (gradient descent, trust region, truncated CG).
 - SGD/minibatch paths were removed; full-batch is the only supported optimization mode.
 - `MutVarSolver` centralizes result mapping from `optx.RESULTS` to `mut_var.types.RESULTS`.
 - `baseline.py` and `refit.py` were merged into `mixture_fit.py`; the likelihood matrix is pre-computed once in `prepare_fit_state`.
@@ -50,7 +50,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 
 ## Key Files
 - `src/mut_var/numerics/mixture_fit.py` - pi-only solver: `prepare_fit_state`, `fit_baseline`, `fit_refit_step`, `FitState`, `Params`.
-- `src/mut_var/numerics/_optimistix_solver.py` - shared Optimistix descent/solver adapters.
+- `src/mut_var/numerics/_solver/` - Optimistix solver adapters (`_gradient.py` for `RiemannianGradientDescent` / `MutVarSolver`, `_trust_region.py` for `RiemannianTrustRegion`, `_truncated_cg.py` for the trust-region subsolver, `_common.py` for shared helpers).
 - `src/mut_var/numerics/curve_fit.py` - curve least-squares fitting kernel.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.
 

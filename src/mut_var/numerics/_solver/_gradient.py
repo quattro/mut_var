@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # pattern: Functional Core
 from collections.abc import Callable
-from typing import Any, cast, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import equinox as eqx
 import jax
@@ -20,93 +20,65 @@ from optimistix._misc import (
     tree_where,
 )
 
-from mut_var.types import RESULTS
+from mut_var.numerics._solver._common import default_verbose
 
 Y = TypeVar("Y")
 
 
-class MutVarDescentState(eqx.Module, Generic[Y]):
+class RiemannianGradientDescentState(eqx.Module, Generic[Y]):
     params: Y
-    direction: Y
+    grad: Y
     step_index: Array
 
 
-def _ascent_direction(grad: Y) -> Y:
-    return jax.tree.map(lambda leaf: -leaf, grad)
+class RiemannianGradientDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, RiemannianGradientDescentState[Y]]):
+    r"""Retraction-parameterised gradient descent for manifold-constrained problems.
 
+    Wraps an unconstrained Euclidean gradient into a manifold-aware proposal
+    using a user-supplied ``step_update`` (the retraction). The retraction
+    receives the current gradient directly; it is responsible for any metric
+    conversion, tangent projection, and sign convention needed to move the
+    parameter *downhill* by ``step_size``.
 
-# pulled from optimistix...
-def default_verbose(verbose: bool | Callable[..., None]) -> Callable[..., None]:
-    if callable(verbose):
-        return verbose
-    elif verbose is True:
-        return _default_verbose
-    elif verbose is False:
-        return _default_no_verbose
-    else:
-        raise ValueError(
-            f"Unrecognized `verbose` of type {type(verbose)}. Accepted types are either booleans or callables."
-        )
+    In practice this is used with the Fisher-Rao retraction on the simplex
+    (:func:`~mut_var.numerics._solver_utils.exponential_map_simplex`), but the
+    descent itself is agnostic to the specific manifold.
+    """
 
-
-def _default_verbose(**kwargs: tuple[str, Any]) -> None:
-    string_pieces = []
-    arg_pieces = []
-    for name, value in kwargs.values():
-        string_pieces.append(name + ": {}")
-        arg_pieces.append(value)
-    if len(string_pieces) > 0:
-        string = ", ".join(string_pieces)
-        jax.debug.print(string, *arg_pieces)
-
-
-def _default_no_verbose(**kwargs):
-    del kwargs
-
-
-class MutVarDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGrad, MutVarDescentState[Y]]):
     step_update: Callable[[Y, Y, ArrayLike], Y] = eqx.field(static=True)
-    direction_transform: Callable[[Y], Y] = eqx.field(static=True)
 
-    def __init__(
-        self,
-        *,
-        step_update: Callable[[Y, Y, ArrayLike], Y],
-        direction_transform: Callable[[Y], Y] = _ascent_direction,
-    ):
+    def __init__(self, *, step_update: Callable[[Y, Y, ArrayLike], Y]):
         self.step_update = step_update
-        self.direction_transform = direction_transform
 
     def init(
         self,
         params: Y,
         f_info_struct: optx.FunctionInfo.EvalGrad,
-    ) -> MutVarDescentState[Y]:
-        r"""Initialize descent state with zero direction matching parameter structure."""
+    ) -> RiemannianGradientDescentState[Y]:
+        r"""Initialize descent state with a zero gradient matching the parameter structure."""
         del f_info_struct
         zeros = jax.tree.map(lambda leaf: jnp.zeros_like(leaf), params)
-        return MutVarDescentState(params=params, direction=zeros, step_index=jnp.asarray(0, dtype=jnp.int32))
+        return RiemannianGradientDescentState(params=params, grad=zeros, step_index=jnp.asarray(0, dtype=jnp.int32))
 
     def query(
         self,
         params: Y,
         f_info: optx.FunctionInfo.EvalGrad,
-        state: MutVarDescentState[Y],
-    ) -> MutVarDescentState[Y]:
-        r"""Update descent direction from current gradient information."""
+        state: RiemannianGradientDescentState[Y],
+    ) -> RiemannianGradientDescentState[Y]:
+        r"""Update the stored gradient from current function information."""
         if not isinstance(f_info, optx.FunctionInfo.EvalGrad):
-            raise ValueError("mut_var optimistix descent requires gradient information")
-        direction = self.direction_transform(f_info.grad)
+            raise ValueError("RiemannianGradientDescent requires gradient information")
         step_index = state.step_index + jnp.asarray(1, dtype=jnp.int32)
-        return MutVarDescentState(params=params, direction=direction, step_index=step_index)
+        return RiemannianGradientDescentState(params=params, grad=f_info.grad, step_index=step_index)
 
     def step(
         self,
         step_size: ArrayLike,
-        state: MutVarDescentState[Y],
+        state: RiemannianGradientDescentState[Y],
     ) -> tuple[Y, optx.RESULTS]:
         r"""Apply one manifold-aware parameter proposal step."""
-        next_params = self.step_update(state.params, state.direction, step_size)
+        next_params = self.step_update(state.params, state.grad, step_size)
         delta = jax.tree.map(lambda x_new, x_old: x_new - x_old, next_params, state.params)
         return delta, optx.RESULTS.successful
 
@@ -115,7 +87,7 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
     rtol: float
     atol: float
     norm: Callable[[PyTree[Array]], Array]
-    descent: MutVarDescent[Y]
+    descent: RiemannianGradientDescent[Y]
     search: optx.AbstractSearch[Y, optx.FunctionInfo.EvalGrad, optx.FunctionInfo.Eval, Any]
     verbose: Callable[..., None]
 
@@ -133,7 +105,7 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = MutVarDescent(step_update=step_update)
+        self.descent = RiemannianGradientDescent(step_update=step_update)
         self.search = search if search is not None else optx.BacktrackingArmijo(step_init=step_size)
         self.verbose = default_verbose(verbose)
 
@@ -180,8 +152,6 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
             loss_this_step=("Loss on this step", f_eval),
             loss_last_accepted_step=("Loss on the last accepted step", state.f_info.f),
             step_size=("Step size", step_size),
-            # y=("y", state.y_eval),
-            # y_last_accepted_step=("y on the last accepted step", y),
         )
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
@@ -200,27 +170,3 @@ class MutVarSolver(optx.AbstractGradientDescent[Y, Any]):
             result=result,
         )
         return y, state, prev_aux
-
-
-def map_optimistix_result(result: optx.RESULTS) -> RESULTS:
-    r"""Map Optimistix solver statuses to mut_var contract statuses."""
-    code = jnp.asarray(result._value, dtype=jnp.int32)
-    code = jnp.where(code == optx.RESULTS.successful._value, 0, code)
-    code = jnp.where(
-        (code == optx.RESULTS.max_steps_reached._value) | (code == optx.RESULTS.nonlinear_max_steps_reached._value),
-        1,
-        code,
-    )
-    code = jnp.where((code == 0) | (code == 1), code, 2)
-    return cast(
-        RESULTS,
-        jax.lax.switch(
-            code,
-            (
-                lambda _: RESULTS.successful,
-                lambda _: RESULTS.max_steps_reached,
-                lambda _: RESULTS.nonfinite_objective,
-            ),
-            operand=None,
-        ),
-    )

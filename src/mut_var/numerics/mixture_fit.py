@@ -12,8 +12,7 @@ from jax.scipy.special import xlogy
 from jax.scipy.stats import norm
 from jaxtyping import Array, ArrayLike
 
-from mut_var.numerics._optimistix_solver import map_optimistix_result, MutVarSolver
-from mut_var.numerics._rtr import RiemannianTrustRegion
+from mut_var.numerics._solver import map_optimistix_result, MutVarSolver, RiemannianTrustRegion
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_nonfinite,
@@ -101,8 +100,10 @@ def prepare_fit_state(
     return Solution(value=state, result=RESULTS.successful, stats=None, state=None)
 
 
-def _pi_step(pi: Array, direction: Array, step_size: ArrayLike) -> Array:
-    tangent = simplex_tangent_direction(pi, direction)
+def _pi_step(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
+    # Move downhill: flip sign once here so the stored descent state carries
+    # the raw gradient and logs read in one consistent direction.
+    tangent = simplex_tangent_direction(pi, -grad)
     return exponential_map_simplex(pi, tangent, step_size)
 
 
