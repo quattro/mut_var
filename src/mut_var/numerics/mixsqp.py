@@ -340,7 +340,8 @@ def mix_sqp(
     L: np.ndarray,
     x0: np.ndarray | None = None,
     max_iter: int = 100,
-    tol: float = 1e-8,
+    atol: float = 1e-3,
+    rtol: float = 1e-3,
     inner_max_iter: int = 200,
     verbose: bool | Callable[..., Any] = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
@@ -358,7 +359,8 @@ def mix_sqp(
       observation ``j`` under component ``k``.
     - `x0`: Optional warm-start weights (normalised to sum to 1).
     - `max_iter`: Maximum outer SQP iterations.
-    - `tol`: Relative objective change threshold for convergence.
+    - `atol`: Absolute convergence tolerance for accepted outer steps.
+    - `rtol`: Relative convergence tolerance for accepted outer steps.
     - `inner_max_iter`: Maximum iterations for the inner active-set QP solver.
     - `verbose`: If ``True``, print per-step progress. Accepts a callable
       ``(step, obj) -> None`` for custom logging.
@@ -414,12 +416,15 @@ def mix_sqp(
         if log_fn is not None:
             log_fn(step=iteration + 1, obj=float(f_new))
 
-        rel_change = abs(f_new - f) / (1.0 + abs(f))
+        step_norm = np.max(np.abs(x_new - x))
+        f_diff = abs(f_new - f)
+        step_converged = step_norm <= (atol + rtol)
+        objective_converged = f_diff <= (atol + rtol * max(1.0, abs(f_new)))
         x = x_new
         f = f_new
         n_iter = iteration + 1
 
-        if rel_change < tol:
+        if step_converged and objective_converged:
             converged = True
             break
 
@@ -433,7 +438,8 @@ def mix_sqp_ordered(
     baseline: np.ndarray,
     x0: np.ndarray | None = None,
     max_iter: int = 100,
-    tol: float = 1e-8,
+    atol: float = 1e-3,
+    rtol: float = 1e-3,
     inner_max_iter: int = 200,
     verbose: bool | Callable[..., Any] = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
@@ -452,7 +458,8 @@ def mix_sqp_ordered(
       no ``x0`` is provided.
     - `x0`: Optional warm-start weights.
     - `max_iter`: Maximum outer SQP iterations.
-    - `tol`: Relative objective change threshold for convergence.
+    - `atol`: Absolute convergence tolerance for accepted outer steps.
+    - `rtol`: Relative convergence tolerance for accepted outer steps.
     - `inner_max_iter`: Maximum iterations for the inner active-set QP solver.
     - `verbose`: Progress callback; same semantics as :func:`mix_sqp`.
 
@@ -507,12 +514,15 @@ def mix_sqp_ordered(
         if log_fn is not None:
             log_fn(step=iteration + 1, obj=float(f_new))
 
-        rel_change = abs(f_new - f) / (1.0 + abs(f))
+        step_norm = np.max(np.abs(x_new - x))
+        f_diff = abs(f_new - f)
+        step_converged = step_norm <= (atol + rtol)
+        objective_converged = f_diff <= (atol + rtol * max(1.0, abs(f_new)))
         x = x_new
         f = f_new
         n_iter = iteration + 1
 
-        if rel_change < tol:
+        if step_converged and objective_converged:
             converged = True
             break
 

@@ -98,10 +98,16 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         help="Maximum optimizer iterations.",
     )
     model_group.add_argument(
-        "--tol",
+        "--atol",
         type=float,
-        default=1e-5,
-        help="Relative objective convergence tolerance.",
+        default=1e-3,
+        help="Absolute convergence tolerance for mix-SQP outer iterations.",
+    )
+    model_group.add_argument(
+        "--rtol",
+        type=float,
+        default=1e-3,
+        help="Relative convergence tolerance for mix-SQP outer iterations.",
     )
     model_group.add_argument(
         "-f",
@@ -320,7 +326,8 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             config=InferenceConfig(
                 num_clusters=args.num_clusters,
                 max_iter=args.max_iter,
-                tol=args.tol,
+                atol=args.atol,
+                rtol=args.rtol,
                 filter_threshold=args.filter,
             ),
             log=log,

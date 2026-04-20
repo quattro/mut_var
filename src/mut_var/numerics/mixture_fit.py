@@ -283,7 +283,8 @@ def fit_baseline(
         pi, info = mix_sqp(
             L,
             max_iter=config.max_iter,
-            tol=config.tol,
+            atol=config.atol,
+            rtol=config.rtol,
             verbose=verbose,
         )
     except Exception as exc:
@@ -364,7 +365,8 @@ def fit_refit_step(
             A=A,
             baseline=prev_params.pi,
             max_iter=config.max_iter,
-            tol=config.tol,
+            atol=config.atol,
+            rtol=config.rtol,
             verbose=verbose,
         )
     except Exception as exc:

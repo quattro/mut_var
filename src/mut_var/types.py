@@ -14,7 +14,8 @@ SeModel = Literal["constant", "af_n_scaled"]
 class InferenceConfig(NamedTuple):
     num_clusters: int
     max_iter: int = 100
-    tol: float = 1e-5
+    atol: float = 1e-3
+    rtol: float = 1e-3
     filter_threshold: float = 1e-8
 
 

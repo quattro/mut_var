@@ -154,7 +154,7 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     assert_no_traceback(err)
 
 
-def test_cli_infer_passes_tol_to_pipeline_config(monkeypatch, tmp_path):
+def test_cli_infer_passes_atol_rtol_to_pipeline_config(monkeypatch, tmp_path):
     _, stderr = _patch_streams(monkeypatch)
     valid_path = tmp_path / "sumstats.tsv"
     valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
@@ -174,10 +174,11 @@ def test_cli_infer_passes_tol_to_pipeline_config(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "run_inference_pipeline", _fake_pipeline)
 
-    code = cli.run_cli(["infer", str(valid_path), "--tol", "1e-7"])
+    code = cli.run_cli(["infer", str(valid_path), "--atol", "1e-7", "--rtol", "2e-7"])
 
     assert code == 0
-    assert captured["config"].tol == 1e-7
+    assert captured["config"].atol == 1e-7
+    assert captured["config"].rtol == 2e-7
     assert_no_traceback(stderr.getvalue())
 
 
