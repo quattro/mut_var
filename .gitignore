@@ -8,6 +8,9 @@ tmp
 tmp.*
 *.png
 
+# autogen from cython
+*.c
+
 # Temporary and binary files
 *~
 *.py[cod]
