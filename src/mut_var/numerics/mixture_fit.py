@@ -227,25 +227,31 @@ def _ordering_penalty(
     prev_pi: Array,
     penalty: float,
 ) -> Array:
-    c1 = prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]
-    p1 = jnp.sum(jax.nn.relu(c1))
-    c2 = prev_pi[0] - pi[0]
-    rel_point_mass_dist = jax.nn.relu(c2)
-    return penalty * (p1 + rel_point_mass_dist)
+    constraint = prev_pi[:-1] * pi[1:] - prev_pi[1:] * pi[:-1]
+    return penalty * jnp.sum(jax.nn.relu(constraint))
+
+
+def _scaled_ordering_penalty(
+    pi: Array,
+    prev_pi: Array,
+    penalty: float,
+    row_count: ArrayLike,
+) -> Array:
+    return jnp.asarray(row_count, dtype=pi.dtype) * _ordering_penalty(pi, prev_pi, penalty)
 
 
 def _ordering_penalty_pi_subgradient(
     pi: Array,
     prev_pi: Array,
     penalty: float,
+    row_count: ArrayLike = 1.0,
 ) -> Array:
     """Piecewise-linear subgradient of the ordering penalty in simplex coordinates."""
-    active_c1 = (prev_pi[1:] * pi[:-1] - prev_pi[:-1] * pi[1:]) > 0.0
+    scaled_penalty = jnp.asarray(row_count, dtype=pi.dtype) * penalty
+    active_constraint = (prev_pi[:-1] * pi[1:] - prev_pi[1:] * pi[:-1]) > 0.0
     grad = jnp.zeros_like(pi)
-    grad = grad.at[:-1].add(penalty * prev_pi[1:] * active_c1)
-    grad = grad.at[1:].add(-penalty * prev_pi[:-1] * active_c1)
-    active_c2 = (prev_pi[0] - pi[0]) > 0.0
-    grad = grad.at[0].add(-penalty * active_c2)
+    grad = grad.at[:-1].add(-scaled_penalty * prev_pi[1:] * active_constraint)
+    grad = grad.at[1:].add(scaled_penalty * prev_pi[:-1] * active_constraint)
     return grad
 
 
@@ -259,10 +265,11 @@ def _refit_hessian_builder(
     # the penalized refit objective, but still omit the nonsmooth Hessian term.
     L_sub, prev_pi, penalty = args
     f_mix, rg, H = _mixture_rgrad_riemannian_hessian(y_sphere, pi, L_sub)
-    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty)
+    row_count = L_sub.shape[0]
+    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty, row_count)
     penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
     penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
-    f = f_mix + _ordering_penalty(pi, prev_pi, penalty)
+    f = f_mix + _scaled_ordering_penalty(pi, prev_pi, penalty, row_count)
     return f, rg + penalty_rgrad, H
 
 
@@ -300,10 +307,11 @@ def _masked_refit_hessian_builder(
 ) -> tuple[Array, Array, lx.AbstractLinearOperator]:
     L, row_weights, prev_pi, penalty = args
     f_mix, rg, H = _weighted_mixture_rgrad_riemannian_hessian(y_sphere, pi, L, row_weights)
-    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty)
+    row_count = jnp.sum(row_weights)
+    penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty, row_count)
     penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
     penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
-    f = f_mix + _ordering_penalty(pi, prev_pi, penalty)
+    f = f_mix + _scaled_ordering_penalty(pi, prev_pi, penalty, row_count)
     return f, rg + penalty_rgrad, H
 
 
@@ -329,8 +337,15 @@ def _baseline_objective(
 ) -> Array:
     prior_weights = _baseline_dirichlet_weights(pi)
     pi_safe = jnp.clip(pi, min=jnp.finfo(L.dtype).tiny)
+    return -_baseline_log_likelihood(pi, L) - jnp.sum(xlogy(prior_weights, pi_safe))
+
+
+def _baseline_log_likelihood(
+    pi: Array,
+    L: Array,
+) -> Array:
     mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(L.dtype).tiny)
-    return -jnp.sum(jnp.log(mixture_pdf)) - jnp.sum(xlogy(prior_weights, pi_safe))
+    return jnp.sum(jnp.log(mixture_pdf))
 
 
 _baseline_obj_jit = eqx.filter_jit(_baseline_objective)
@@ -374,12 +389,13 @@ def fit_baseline(
     )
     pi_opt = optx_solution.value
     objective_value = _baseline_obj_jit(pi_opt, L)
+    log_likelihood = _baseline_log_likelihood(pi_opt, L)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(
         value=Params(pi=pi_opt, mu_k=init_params.mu_k, var_k=init_params.var_k),
         result=result,
-        stats={"n_steps": n_steps},
+        stats={"n_steps": n_steps, "log_likelihood": log_likelihood},
         state=None,
     )
 
@@ -390,9 +406,7 @@ def _refit_objective(
     prev_pi: Array,
     penalty: float,
 ) -> Array:
-    mixture_pdf = jnp.clip(L_sub @ pi, min=jnp.finfo(L_sub.dtype).tiny)
-    log_likelihood = jnp.sum(jnp.log(mixture_pdf))
-    return -log_likelihood + _ordering_penalty(pi, prev_pi, penalty)
+    return -_refit_log_likelihood(pi, L_sub) + _scaled_ordering_penalty(pi, prev_pi, penalty, L_sub.shape[0])
 
 
 _refit_obj_jit = eqx.filter_jit(_refit_objective)
@@ -405,9 +419,29 @@ def _masked_refit_objective(
     prev_pi: Array,
     penalty: float,
 ) -> Array:
+    return -_masked_refit_log_likelihood(pi, L, row_weights) + _scaled_ordering_penalty(
+        pi,
+        prev_pi,
+        penalty,
+        jnp.sum(row_weights),
+    )
+
+
+def _refit_log_likelihood(
+    pi: Array,
+    L_sub: Array,
+) -> Array:
+    mixture_pdf = jnp.clip(L_sub @ pi, min=jnp.finfo(L_sub.dtype).tiny)
+    return jnp.sum(jnp.log(mixture_pdf))
+
+
+def _masked_refit_log_likelihood(
+    pi: Array,
+    L: Array,
+    row_weights: Array,
+) -> Array:
     mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(L.dtype).tiny)
-    log_likelihood = jnp.sum(row_weights * jnp.log(mixture_pdf))
-    return -log_likelihood + _ordering_penalty(pi, prev_pi, penalty)
+    return jnp.sum(row_weights * jnp.log(mixture_pdf))
 
 
 _masked_refit_obj_jit = eqx.filter_jit(_masked_refit_objective)
@@ -467,12 +501,13 @@ def fit_refit_step(
     )
     pi_opt = optx_solution.value
     objective_value = _refit_obj_jit(pi_opt, L_arr, pi_init, config.penalty)
+    log_likelihood = _refit_log_likelihood(pi_opt, L_arr)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(
         value=Params(pi=pi_opt, mu_k=prev_params.mu_k, var_k=prev_params.var_k),
         result=result,
-        stats={"n_steps": n_steps},
+        stats={"n_steps": n_steps, "log_likelihood": log_likelihood},
         state=None,
     )
 
@@ -508,12 +543,13 @@ def fit_refit_masked_step(
     )
     pi_opt = optx_solution.value
     objective_value = _masked_refit_obj_jit(pi_opt, L_arr, row_weights, pi_init, config.penalty)
+    log_likelihood = _masked_refit_log_likelihood(pi_opt, L_arr, row_weights)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(
         value=Params(pi=pi_opt, mu_k=prev_params.mu_k, var_k=prev_params.var_k),
         result=result,
-        stats={"n_steps": n_steps},
+        stats={"n_steps": n_steps, "log_likelihood": log_likelihood},
         state=None,
     )
 

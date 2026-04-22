@@ -59,6 +59,9 @@ def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_path, caplog
     messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
     assert any("fitting baseline model" in message for message in messages)
     assert any("fitting refit grid" in message for message in messages)
+    assert any("baseline final log_likelihood=" in message for message in messages)
+    assert any("refit 1 final log_likelihood=" in message for message in messages)
+    assert any("refit 2 final log_likelihood=" in message for message in messages)
     assert any("building numerics payload" in message for message in messages)
 
 

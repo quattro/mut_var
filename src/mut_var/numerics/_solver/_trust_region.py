@@ -63,13 +63,15 @@ def _boundary_stagnation_converged(
     pred_reduction: Array,
     objective: Array,
     on_boundary: Array,
+    accepted_step: Array,
     min_radius: float,
 ) -> Array:
     """Detect boundary-limited stagnation when the model cannot reduce meaningfully."""
     objective_scale = jnp.maximum(jnp.asarray(1.0, dtype=objective.dtype), jnp.abs(objective))
     tiny_model_reduction = pred_reduction <= (1e-12 * objective_scale)
     tiny_radius = radius <= jnp.asarray(min_radius, dtype=radius.dtype)
-    return on_boundary & tiny_radius & tiny_model_reduction
+    rejected_at_radius_floor = tiny_radius & ~accepted_step
+    return on_boundary & (rejected_at_radius_floor | (tiny_radius & tiny_model_reduction))
 
 
 class RiemannianTrustRegion(optx.AbstractMinimiser):
@@ -301,6 +303,7 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
             pred_reduction=state.pred_reduction,
             objective=state.objective,
             on_boundary=state.on_boundary,
+            accepted_step=state.accepted_step,
             min_radius=1e-12,
         )
         return converged, optx.RESULTS.successful

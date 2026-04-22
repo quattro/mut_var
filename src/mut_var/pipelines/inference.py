@@ -135,6 +135,19 @@ def _solver_debug_callback(
     return _verbose
 
 
+def _log_final_log_likelihood(workflow_log: logging.Logger, stage: str, solution: Solution) -> None:
+    if not isinstance(solution.stats, Mapping):
+        return
+    log_likelihood = solution.stats.get("log_likelihood")
+    if log_likelihood is None:
+        return
+    workflow_log.info(
+        "inference pipeline: %s final log_likelihood=%.6f",
+        stage,
+        float(log_likelihood),
+    )
+
+
 def run_inference_pipeline(
     path: str,
     *,
@@ -204,6 +217,7 @@ def run_inference_pipeline(
             "inference pipeline: baseline fit completed with result '%s'",
             RESULTS[baseline_solution.result],
         )
+        _log_final_log_likelihood(workflow_log, "baseline", baseline_solution)
 
         if not is_recoverable_result(baseline_solution.result):
             solution = baseline_solution
@@ -228,6 +242,7 @@ def run_inference_pipeline(
                     inference_config,
                     verbose=_solver_debug_callback(workflow_log, f"refit {break_idx}"),
                 )
+                _log_final_log_likelihood(workflow_log, f"refit {break_idx}", step_sol)
                 step_results.append(step_sol.result)
                 if not is_recoverable_result(step_sol.result):
                     solution = step_sol

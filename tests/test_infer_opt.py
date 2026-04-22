@@ -16,6 +16,7 @@ from mut_var.numerics._solver_utils import simplex_to_sphere, sphere_to_simplex
 from mut_var.numerics.mixture_fit import (
     _baseline_hessian_builder,
     _baseline_objective,
+    _ordering_penalty,
     _refit_hessian_builder,
     _refit_objective,
     fit_baseline,
@@ -162,6 +163,38 @@ def test_baseline_objective_includes_null_component_dirichlet_penalty():
     assert jnp.allclose(objective, expected, rtol=1e-12, atol=1e-12)
 
 
+def test_ordering_penalty_matches_mixsqp_ratio_constraint_without_extra_spike_term():
+    prev_pi = jnp.asarray([0.50, 0.30, 0.20], dtype=jnp.float64)
+    penalty = 100.0
+
+    feasible_pi = jnp.asarray([0.60, 0.25, 0.15], dtype=jnp.float64)
+    violating_pi = jnp.asarray([0.45, 0.40, 0.15], dtype=jnp.float64)
+    expected_violation = prev_pi[0] * violating_pi[1] - prev_pi[1] * violating_pi[0]
+
+    assert _ordering_penalty(feasible_pi, prev_pi, penalty) == 0.0
+    assert _ordering_penalty(violating_pi, prev_pi, penalty) == penalty * expected_violation
+
+
+def test_refit_objective_scales_ordering_penalty_to_summed_log_likelihood():
+    penalty = 100.0
+    l_sub = jnp.asarray(
+        [
+            [0.80, 0.15, 0.05],
+            [0.70, 0.20, 0.10],
+            [0.60, 0.25, 0.15],
+        ],
+        dtype=jnp.float64,
+    )
+    prev_pi = jnp.asarray([0.50, 0.30, 0.20], dtype=jnp.float64)
+    pi = jnp.asarray([0.45, 0.40, 0.15], dtype=jnp.float64)
+
+    mixture_pdf = l_sub @ pi
+    expected_violation = prev_pi[0] * pi[1] - prev_pi[1] * pi[0]
+    expected = -jnp.sum(jnp.log(mixture_pdf)) + l_sub.shape[0] * penalty * expected_violation
+
+    assert _refit_objective(pi, l_sub, prev_pi, penalty) == expected
+
+
 def test_rtr_baseline_builder_gradient_matches_penalized_objective():
     l_matrix = jnp.asarray(
         [
@@ -274,15 +307,27 @@ def test_rtr_boundary_stagnation_counts_as_converged():
         pred_reduction=jnp.asarray(1.1432911006049647e-11, dtype=jnp.float64),
         objective=jnp.asarray(6_441_581.815678639, dtype=jnp.float64),
         on_boundary=jnp.asarray(True),
+        accepted_step=jnp.asarray(True),
         min_radius=1e-12,
     )
     assert bool(converged)
+
+    rejected_at_radius_floor = _boundary_stagnation_converged(
+        radius=jnp.asarray(1e-12, dtype=jnp.float64),
+        pred_reduction=jnp.asarray(4.0536650913986894e-05, dtype=jnp.float64),
+        objective=jnp.asarray(-774_567.0907385527, dtype=jnp.float64),
+        on_boundary=jnp.asarray(True),
+        accepted_step=jnp.asarray(False),
+        min_radius=1e-12,
+    )
+    assert bool(rejected_at_radius_floor)
 
     not_converged = _boundary_stagnation_converged(
         radius=jnp.asarray(1e-6, dtype=jnp.float64),
         pred_reduction=jnp.asarray(1e-3, dtype=jnp.float64),
         objective=jnp.asarray(10.0, dtype=jnp.float64),
         on_boundary=jnp.asarray(False),
+        accepted_step=jnp.asarray(False),
         min_radius=1e-12,
     )
     assert not bool(not_converged)
