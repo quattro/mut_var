@@ -32,12 +32,15 @@ RiemannianHessianBuilder = Callable[[Array, Array, Any], tuple[Array, Array, lx.
 
 
 class _RTRSolverState(eqx.Module):
+    first_step: Array
+    accepted_step: Array
     radius: Array
     gnorm: Array
     step_norm: Array
     pred_reduction: Array
     objective: Array
     on_boundary: Array
+    f_diff: Array
 
 
 def _accept_trust_region_step(
@@ -87,7 +90,6 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
       ``(f, rgrad, hessian)`` on the sphere chart at ``y_sphere``; the Hessian
       is a :class:`lineax.AbstractLinearOperator` already in its
       projection-sandwiched Riemannian form.
-    - `gtol`: Riemannian gradient-norm tolerance for convergence.
     - `initial_radius`: Starting trust-region radius.
     - `max_radius`: Maximum trust-region radius.
     - `eta_accept`: Minimum rho to accept a step.
@@ -100,15 +102,15 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
       $\min(\texttt{subproblem\_rtol}, \sqrt{\|g\|})$ so the inner solve
       tightens automatically as the outer iterate converges.
     - `min_x`: Floor applied when mapping sphere $\leftrightarrow$ simplex.
-    - `rtol`, `atol`, `norm`: Required by the Optimistix interface; RTR uses
-      gradient-norm termination instead of Cauchy conditions.
+    - `rtol`, `atol`, `norm`: Convergence settings, aligned with
+      :class:`RiemannianGradientDescent` through manifold-step/objective
+      termination on accepted updates.
     - `verbose`: If `True` or a callable, emit per-step diagnostics.
     """
 
     rtol: float
     atol: float
     norm: Callable
-    gtol: float = eqx.field(static=True)
     initial_radius: float = eqx.field(static=True)
     max_radius: float = eqx.field(static=True)
     eta_accept: float = eqx.field(static=True)
@@ -125,7 +127,6 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
         self,
         riemannian_hessian_builder: RiemannianHessianBuilder,
         *,
-        gtol: float = 1e-7,
         initial_radius: float = 0.125,
         max_radius: float = 1.0,
         eta_accept: float = 0.1,
@@ -140,7 +141,6 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
         norm: Callable = optx.max_norm,
         verbose: bool | Callable[..., Any] = False,
     ):
-        self.gtol = gtol
         self.initial_radius = initial_radius
         self.max_radius = max_radius
         self.eta_accept = eta_accept
@@ -157,14 +157,17 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
         self.riemannian_hessian_builder = riemannian_hessian_builder
 
     def init(self, fn, y, args, options, f_struct, aux_struct, tags):
-        del fn, y, args, options, f_struct, aux_struct, tags
+        del fn, args, options, f_struct, aux_struct, tags
         return _RTRSolverState(
+            first_step=jnp.asarray(True),
+            accepted_step=jnp.asarray(False),
             radius=jnp.asarray(self.initial_radius, dtype=jnp.float64),
             gnorm=jnp.asarray(jnp.inf, dtype=jnp.float64),
             step_norm=jnp.asarray(jnp.inf, dtype=jnp.float64),
             pred_reduction=jnp.asarray(jnp.inf, dtype=jnp.float64),
             objective=jnp.asarray(jnp.inf, dtype=jnp.float64),
             on_boundary=jnp.asarray(False),
+            f_diff=jnp.asarray(jnp.inf, dtype=jnp.float64),
         )
 
     def step(self, fn, y, args, options, state, tags):
@@ -204,10 +207,15 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
 
         min_radius = jnp.asarray(1e-12, dtype=jnp.float64)
 
-        def reject_bad_model(_: None) -> tuple[Array, Array]:
-            return y, jnp.maximum(state.radius * self.shrink_factor, min_radius)
+        def reject_bad_model(_: None) -> tuple[Array, Array, Array, Array]:
+            return (
+                y,
+                jnp.maximum(state.radius * self.shrink_factor, min_radius),
+                jnp.asarray(False),
+                jnp.asarray(0.0, dtype=f.dtype),
+            )
 
-        def try_step(_: None) -> tuple[Array, Array]:
+        def try_step(_: None) -> tuple[Array, Array, Array, Array]:
             y_trial_sphere = sphere_expmap(y_sphere, eta)
             # The sphere chart is sign-symmetric for simplex parameters:
             # pi = y^2 / sum(y^2). A trial geodesic may cross into another
@@ -239,9 +247,15 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
                     lambda: state.radius,
                 ),
             )
-            return y_new, radius_new
+            f_diff = jnp.where(accepted, jnp.abs(actual_reduction), jnp.asarray(0.0, dtype=f.dtype))
+            return y_new, radius_new, accepted, f_diff
 
-        y_new, radius_new = jax.lax.cond(pred_reduction <= 0.0, reject_bad_model, try_step, operand=None)
+        y_new, radius_new, accepted_step, f_diff = jax.lax.cond(
+            pred_reduction <= 0.0,
+            reject_bad_model,
+            try_step,
+            operand=None,
+        )
 
         self.verbose(
             objective=("Objective", f),
@@ -253,20 +267,36 @@ class RiemannianTrustRegion(optx.AbstractMinimiser):
         )
 
         new_state = _RTRSolverState(
+            first_step=jnp.asarray(False),
+            accepted_step=accepted_step,
             radius=radius_new,
             gnorm=gnorm,
             step_norm=jnp.linalg.norm(eta),
             pred_reduction=pred_reduction,
             objective=f,
             on_boundary=on_boundary,
+            f_diff=f_diff,
         )
         return y_new, new_state, None
 
     def terminate(self, fn, y, args, options, state, tags):
-        # Gradient-norm termination; the framework signals
-        # nonlinear_max_steps_reached automatically once the step budget runs out.
         del fn, y, args, options, tags
-        converged = (state.gnorm < self.gtol) | _boundary_stagnation_converged(
+        step_converged = state.step_norm <= jnp.asarray(self.atol + self.rtol, dtype=state.step_norm.dtype)
+        objective_converged = state.f_diff <= (
+            self.atol
+            + self.rtol
+            * jnp.maximum(
+                jnp.asarray(1.0, dtype=state.objective.dtype),
+                jnp.abs(state.objective),
+            )
+        )
+        step_objective_converged = step_converged & objective_converged
+        step_objective_converged = jnp.where(
+            state.first_step | ~state.accepted_step,
+            jnp.asarray(False),
+            step_objective_converged,
+        )
+        converged = step_objective_converged | _boundary_stagnation_converged(
             radius=state.radius,
             pred_reduction=state.pred_reduction,
             objective=state.objective,

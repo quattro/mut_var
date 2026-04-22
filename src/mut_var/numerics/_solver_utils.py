@@ -77,3 +77,14 @@ def exponential_map_simplex(
     y = simplex_to_sphere(pi)
     eta = step_size * tangent_direction / (2.0 * y)
     return sphere_to_simplex(sphere_expmap(y, eta))
+
+
+def simplex_geodesic_step_norm(
+    pi: Array,
+    tangent_direction: Array,
+    step_size: ArrayLike,
+) -> Array:
+    r"""Return the sphere-chart geodesic step length induced by a simplex tangent step."""
+    y = simplex_to_sphere(pi)
+    eta = step_size * tangent_direction / (2.0 * y)
+    return jnp.linalg.norm(project_tangent_sphere(y, eta))

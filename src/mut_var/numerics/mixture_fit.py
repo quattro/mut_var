@@ -21,11 +21,13 @@ from mut_var.numerics._solver import (
 from mut_var.numerics._solver_utils import (
     exponential_map_simplex,
     is_nonfinite,
+    simplex_geodesic_step_norm,
     simplex_tangent_direction,
 )
 from mut_var.types import InferenceConfig, RESULTS, Solution
 
 _DEFAULT_STEP_SIZE: float = 0.05
+_BASELINE_NULL_PRIOR_ALPHA: float = 10.0
 
 
 def _pi_step(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
@@ -33,6 +35,11 @@ def _pi_step(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
     # the raw gradient and logs read in one consistent direction.
     tangent = simplex_tangent_direction(pi, -grad)
     return exponential_map_simplex(pi, tangent, step_size)
+
+
+def _pi_step_norm(pi: Array, grad: Array, step_size: ArrayLike) -> Array:
+    tangent = simplex_tangent_direction(pi, -grad)
+    return simplex_geodesic_step_norm(pi, tangent, step_size)
 
 
 def _build_solver(
@@ -43,11 +50,13 @@ def _build_solver(
     if config.solver == "rtr":
         return RiemannianTrustRegion(
             hessian_builder,
-            gtol=config.tol,
+            rtol=config.tol,
+            atol=config.tol,
             verbose=verbose,
         )
     return RiemannianGradientDescent(
         step_update=_pi_step,
+        step_norm=_pi_step_norm,
         step_size=_DEFAULT_STEP_SIZE,
         rtol=config.tol,
         atol=config.tol,
@@ -139,15 +148,12 @@ def _mixture_rgrad_riemannian_hessian(
     y_sphere: Array,
     pi: Array,
     L: Array,
-    alpha: Array,
 ) -> tuple[Array, Array, lx.MatrixLinearOperator]:
     r"""Analytic Riemannian gradient and Hessian on the sphere chart.
 
-    For $F(\pi) = -\sum_n \log(L\pi)_n - \sum_k (\alpha_k-1) \log \pi_k$
-    (MAP objective, Dirichlet log-prior with inward sign), the Euclidean
-    Hessian factors as a low-rank-plus-diagonal form
-    $\mathrm{Hess}_\pi F = L^\top D L + \mathrm{diag}((\alpha-1)/\pi^2)$
-    with $D = \mathrm{diag}(1/(L\pi)^2)$. Lifting through $\pi = y^2$ gives a
+    For $F(\pi) = -\sum_n \log(L\pi)_n$, the Euclidean Hessian is the low-rank
+    form $\mathrm{Hess}_\pi F = L^\top D L$ with $D = \mathrm{diag}(1/(L\pi)^2)$.
+    Lifting through $\pi = y^2$ gives a
     dense $k \times k$ sphere-chart Euclidean Hessian, and the projection
     sandwich $\mathrm{Hess}_R f(v) = P_y H_E P_y v - \langle y, \nabla_y f\rangle P_y v$
     collapses to a fully materialised $k \times k$ symmetric matrix. The heavy
@@ -158,7 +164,7 @@ def _mixture_rgrad_riemannian_hessian(
     tiny = jnp.finfo(L.dtype).tiny
     Lpi = jnp.clip(L @ pi, min=tiny)
     log_Lpi = jnp.log(Lpi)
-    f = -(jnp.sum(log_Lpi) + jnp.sum(xlogy(alpha - 1.0, pi)))
+    f = -jnp.sum(log_Lpi)
     r = 1.0 / Lpi
     D = r * r
     # Gram G = L^T D L is the only expensive $n$-sized matmul per outer step.
@@ -166,12 +172,11 @@ def _mixture_rgrad_riemannian_hessian(
     # = L^T (r^2 / r) = L^T r. Costs $k^2$ instead of an extra $n k$ matvec.
     G = L.T @ (D[:, None] * L)
     Lt_r = G @ pi
-    pen_diag = (alpha - 1.0) / pi
-    g_pi = -Lt_r - pen_diag
+    g_pi = -Lt_r
     ge = 2.0 * y_sphere * g_pi
     rgrad = ge - jnp.dot(y_sphere, ge) * y_sphere
     y_ge_dot = jnp.dot(y_sphere, ge)
-    diag_total = -2.0 * Lt_r + 2.0 * pen_diag
+    diag_total = -2.0 * Lt_r
 
     H_E = jnp.diag(diag_total) + 4.0 * (y_sphere[:, None] * G * y_sphere[None, :])
     k = y_sphere.shape[0]
@@ -181,13 +186,40 @@ def _mixture_rgrad_riemannian_hessian(
     return f, rgrad, lx.MatrixLinearOperator(H_R, tags=frozenset({lx.symmetric_tag}))
 
 
+def _baseline_dirichlet_weights(pi: Array) -> Array:
+    weights = jnp.zeros_like(pi)
+    return weights.at[0].set(_BASELINE_NULL_PRIOR_ALPHA - 1.0)
+
+
 def _baseline_hessian_builder(
     y_sphere: Array,
     pi: Array,
     args: Any,
 ) -> tuple[Array, Array, lx.AbstractLinearOperator]:
-    L, alpha = args
-    return _mixture_rgrad_riemannian_hessian(y_sphere, pi, L, alpha)
+    (L,) = args
+    tiny = jnp.finfo(L.dtype).tiny
+    pi_safe = jnp.clip(pi, min=tiny)
+    prior_weights = _baseline_dirichlet_weights(pi)
+
+    Lpi = jnp.clip(L @ pi, min=tiny)
+    log_Lpi = jnp.log(Lpi)
+    f = -jnp.sum(log_Lpi) - jnp.sum(xlogy(prior_weights, pi_safe))
+    r = 1.0 / Lpi
+    D = r * r
+    G = L.T @ (D[:, None] * L)
+    Lt_r = G @ pi
+    g_pi = -Lt_r - prior_weights / pi_safe
+    ge = 2.0 * y_sphere * g_pi
+    rgrad = ge - jnp.dot(y_sphere, ge) * y_sphere
+    y_ge_dot = jnp.dot(y_sphere, ge)
+
+    H_pi = G + jnp.diag(prior_weights / (pi_safe * pi_safe))
+    H_E = jnp.diag(2.0 * g_pi) + 4.0 * (y_sphere[:, None] * H_pi * y_sphere[None, :])
+    k = y_sphere.shape[0]
+    P_y = jnp.eye(k, dtype=y_sphere.dtype) - jnp.outer(y_sphere, y_sphere)
+    H_R = P_y @ H_E @ P_y - y_ge_dot * P_y
+
+    return f, rgrad, lx.MatrixLinearOperator(H_R, tags=frozenset({lx.symmetric_tag}))
 
 
 def _ordering_penalty(
@@ -225,8 +257,8 @@ def _refit_hessian_builder(
     # The ReLU ordering penalty contributes a piecewise-constant subgradient.
     # We include that in the trust-region gradient so the step direction matches
     # the penalized refit objective, but still omit the nonsmooth Hessian term.
-    L_sub, prev_pi, alpha, penalty = args
-    f_mix, rg, H = _mixture_rgrad_riemannian_hessian(y_sphere, pi, L_sub, alpha)
+    L_sub, prev_pi, penalty = args
+    f_mix, rg, H = _mixture_rgrad_riemannian_hessian(y_sphere, pi, L_sub)
     penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty)
     penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
     penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
@@ -239,22 +271,20 @@ def _weighted_mixture_rgrad_riemannian_hessian(
     pi: Array,
     L: Array,
     row_weights: Array,
-    alpha: Array,
 ) -> tuple[Array, Array, lx.MatrixLinearOperator]:
     tiny = jnp.finfo(L.dtype).tiny
     Lpi = jnp.clip(L @ pi, min=tiny)
     log_Lpi = jnp.log(Lpi)
-    f = -(jnp.sum(row_weights * log_Lpi) + jnp.sum(xlogy(alpha - 1.0, pi)))
+    f = -jnp.sum(row_weights * log_Lpi)
     r = row_weights / Lpi
     D = row_weights / (Lpi * Lpi)
     G = L.T @ (D[:, None] * L)
     Lt_r = L.T @ r
-    pen_diag = (alpha - 1.0) / pi
-    g_pi = -Lt_r - pen_diag
+    g_pi = -Lt_r
     ge = 2.0 * y_sphere * g_pi
     rgrad = ge - jnp.dot(y_sphere, ge) * y_sphere
     y_ge_dot = jnp.dot(y_sphere, ge)
-    diag_total = -2.0 * Lt_r + 2.0 * pen_diag
+    diag_total = -2.0 * Lt_r
 
     H_E = jnp.diag(diag_total) + 4.0 * (y_sphere[:, None] * G * y_sphere[None, :])
     k = y_sphere.shape[0]
@@ -268,8 +298,8 @@ def _masked_refit_hessian_builder(
     pi: Array,
     args: Any,
 ) -> tuple[Array, Array, lx.AbstractLinearOperator]:
-    L, row_weights, prev_pi, alpha, penalty = args
-    f_mix, rg, H = _weighted_mixture_rgrad_riemannian_hessian(y_sphere, pi, L, row_weights, alpha)
+    L, row_weights, prev_pi, penalty = args
+    f_mix, rg, H = _weighted_mixture_rgrad_riemannian_hessian(y_sphere, pi, L, row_weights)
     penalty_grad_pi = _ordering_penalty_pi_subgradient(pi, prev_pi, penalty)
     penalty_grad_euclid = 2.0 * y_sphere * penalty_grad_pi
     penalty_rgrad = penalty_grad_euclid - jnp.dot(y_sphere, penalty_grad_euclid) * y_sphere
@@ -296,20 +326,19 @@ def _result_from_objective_value(
 def _baseline_objective(
     pi: Array,
     L: Array,
-    alpha: Array,
 ) -> Array:
+    prior_weights = _baseline_dirichlet_weights(pi)
+    pi_safe = jnp.clip(pi, min=jnp.finfo(L.dtype).tiny)
     mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(L.dtype).tiny)
-    log_likelihood = jnp.sum(jnp.log(mixture_pdf))
-    log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
-    return -(log_likelihood + log_prior)
+    return -jnp.sum(jnp.log(mixture_pdf)) - jnp.sum(xlogy(prior_weights, pi_safe))
 
 
 _baseline_obj_jit = eqx.filter_jit(_baseline_objective)
 
 
 def _neg_baseline_obj(pi: Array, args: tuple) -> Array:
-    L, alpha = args
-    val = _baseline_obj_jit(pi, L, alpha)
+    (L,) = args
+    val = _baseline_obj_jit(pi, L)
     return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
 
@@ -334,20 +363,17 @@ def fit_baseline(
     L = state.likelihood_matrix
     init_params = state.initial_params
     pi_init = jnp.asarray(init_params.pi)
-    k = pi_init.shape[0]
-    alpha = jnp.array([10.0] + (k - 1) * [1.0])
-
     solver = _build_solver(config, _baseline_hessian_builder, verbose)
     optx_solution = optx.minimise(
         fn=_neg_baseline_obj,
         solver=solver,
         y0=pi_init,
-        args=(L, alpha),
+        args=(L,),
         max_steps=config.max_iter,
         throw=False,
     )
     pi_opt = optx_solution.value
-    objective_value = _baseline_obj_jit(pi_opt, L, alpha)
+    objective_value = _baseline_obj_jit(pi_opt, L)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(
@@ -362,13 +388,11 @@ def _refit_objective(
     pi: Array,
     L_sub: Array,
     prev_pi: Array,
-    alpha: Array,
     penalty: float,
 ) -> Array:
     mixture_pdf = jnp.clip(L_sub @ pi, min=jnp.finfo(L_sub.dtype).tiny)
     log_likelihood = jnp.sum(jnp.log(mixture_pdf))
-    log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
-    return -(log_likelihood + log_prior) + _ordering_penalty(pi, prev_pi, penalty)
+    return -log_likelihood + _ordering_penalty(pi, prev_pi, penalty)
 
 
 _refit_obj_jit = eqx.filter_jit(_refit_objective)
@@ -379,27 +403,25 @@ def _masked_refit_objective(
     L: Array,
     row_weights: Array,
     prev_pi: Array,
-    alpha: Array,
     penalty: float,
 ) -> Array:
     mixture_pdf = jnp.clip(L @ pi, min=jnp.finfo(L.dtype).tiny)
     log_likelihood = jnp.sum(row_weights * jnp.log(mixture_pdf))
-    log_prior = jnp.sum(xlogy(alpha - 1.0, pi))
-    return -(log_likelihood + log_prior) + _ordering_penalty(pi, prev_pi, penalty)
+    return -log_likelihood + _ordering_penalty(pi, prev_pi, penalty)
 
 
 _masked_refit_obj_jit = eqx.filter_jit(_masked_refit_objective)
 
 
 def _neg_refit_obj(pi: Array, args: tuple) -> Array:
-    L_sub, prev_pi, alpha, penalty = args
-    val = _refit_obj_jit(pi, L_sub, prev_pi, alpha, penalty)
+    L_sub, prev_pi, penalty = args
+    val = _refit_obj_jit(pi, L_sub, prev_pi, penalty)
     return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
 
 def _neg_masked_refit_obj(pi: Array, args: tuple) -> Array:
-    L, row_weights, prev_pi, alpha, penalty = args
-    val = _masked_refit_obj_jit(pi, L, row_weights, prev_pi, alpha, penalty)
+    L, row_weights, prev_pi, penalty = args
+    val = _masked_refit_obj_jit(pi, L, row_weights, prev_pi, penalty)
     return jnp.where(jnp.isfinite(val), val, jnp.inf)
 
 
@@ -434,20 +456,17 @@ def fit_refit_step(
             state=None,
         )
 
-    k = pi_init.shape[0]
-    alpha = jnp.array([10.0] + (k - 1) * [1.0])
-
     solver = _build_solver(config, _refit_hessian_builder, verbose)
     optx_solution = optx.minimise(
         fn=_neg_refit_obj,
         solver=solver,
         y0=pi_init,
-        args=(L_arr, pi_init, alpha, config.penalty),
+        args=(L_arr, pi_init, config.penalty),
         max_steps=config.max_iter,
         throw=False,
     )
     pi_opt = optx_solution.value
-    objective_value = _refit_obj_jit(pi_opt, L_arr, pi_init, alpha, config.penalty)
+    objective_value = _refit_obj_jit(pi_opt, L_arr, pi_init, config.penalty)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(
@@ -478,20 +497,17 @@ def fit_refit_masked_step(
             state=None,
         )
 
-    k = pi_init.shape[0]
-    alpha = jnp.array([10.0] + (k - 1) * [1.0])
-
     solver = _build_solver(config, _masked_refit_hessian_builder, verbose)
     optx_solution = optx.minimise(
         fn=_neg_masked_refit_obj,
         solver=solver,
         y0=pi_init,
-        args=(L_arr, row_weights, pi_init, alpha, config.penalty),
+        args=(L_arr, row_weights, pi_init, config.penalty),
         max_steps=config.max_iter,
         throw=False,
     )
     pi_opt = optx_solution.value
-    objective_value = _masked_refit_obj_jit(pi_opt, L_arr, row_weights, pi_init, alpha, config.penalty)
+    objective_value = _masked_refit_obj_jit(pi_opt, L_arr, row_weights, pi_init, config.penalty)
     result = _result_from_objective_value(objective_value, optx_solution.result)
     n_steps = optx_solution.stats.get("num_steps")
     return Solution(

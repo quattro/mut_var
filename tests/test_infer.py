@@ -30,6 +30,21 @@ def test_run_inference_pipeline_returns_dataframe(sumstats_valid_path):
     assert result_df.columns == ["mu0", "var0", "maf", "name", "value"]
 
 
+def test_run_inference_pipeline_reports_min_observed_maf_for_baseline(sumstats_valid_path):
+    result_df = run_inference_pipeline(
+        str(sumstats_valid_path),
+        lowest=1e-3,
+        highest=5e-3,
+        num_breaks=2,
+        config=InferenceConfig(num_clusters=3, max_iter=5),
+    )
+
+    baseline_maf = result_df.filter(pl.col("name") == "pi0").get_column("maf").unique()
+
+    assert baseline_maf.len() == 1
+    assert baseline_maf.item() == pytest.approx(0.1)
+
+
 def test_run_inference_pipeline_logs_numerics_stages(sumstats_valid_path, caplog):
     caplog.set_level(logging.INFO, logger="mut_var.pipelines.inference")
 
@@ -60,7 +75,7 @@ def test_run_inference_pipeline_logs_solver_steps_at_debug(sumstats_valid_path, 
 
     messages = [record.getMessage() for record in caplog.records if record.name == "mut_var.pipelines.inference"]
     assert any("baseline | Step:" in message for message in messages)
-    assert any("refit | Step:" in message for message in messages)
+    assert any("refit 1 | Step:" in message for message in messages)
 
 
 def test_run_inference_pipeline_raises_on_critical_numerics_result(sumstats_valid_path, monkeypatch):

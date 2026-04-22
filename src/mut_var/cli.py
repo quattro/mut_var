@@ -14,7 +14,6 @@ from mut_var.numerics import SimulationNumericsConfig
 from mut_var.pipelines import run_curve_pipeline, run_inference_pipeline, run_simulation_pipeline
 from mut_var.types import InferenceConfig, SimulationPipelineConfig
 
-jax.config.update("jax_enable_x64", True)
 FMT = ap.ArgumentDefaultsHelpFormatter
 
 
@@ -125,6 +124,12 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         type=float,
         default=100.0,
         help="Ordering penalty weight used in refit steps.",
+    )
+    model_group.add_argument(
+        "--32bit",
+        action="store_true",
+        default=False,
+        help="Run inference without enabling JAX x64.",
     )
 
     grid_group = infer.add_argument_group("MAF Grid")
@@ -304,6 +309,11 @@ def _parse_comma_floats(raw: str, field: str) -> tuple[float, ...]:
         raise ValueError(f"{field} must contain only comma-delimited floats") from exc
 
 
+def _configure_jax_precision(args: ap.Namespace) -> None:
+    enable_x64 = not (getattr(args, "command", None) == "infer" and getattr(args, "32bit", False))
+    jax.config.update("jax_enable_x64", enable_x64)
+
+
 def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     r"""Run the CLI inference workflow.
 
@@ -465,6 +475,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     log.setLevel(logging.INFO)
     try:
         args = build_parser().parse_args(raw_args)
+        _configure_jax_precision(args)
         if getattr(args, "verbose", False):
             log.setLevel(logging.DEBUG)
         log.debug("cli: parsed args for command '%s'", getattr(args, "command", "unknown"))

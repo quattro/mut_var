@@ -9,6 +9,8 @@ tmp.*
 *.png
 
 # Temporary and binary files
+*.c
+ashr/
 *~
 *.py[cod]
 *.so

@@ -3,6 +3,7 @@ import sys
 from io import StringIO
 
 import polars as pl
+import pytest
 
 import mut_var.cli as cli
 import mut_var.numerics.mixture_fit as mixture_fit_module
@@ -149,6 +150,48 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     assert_no_traceback(err)
 
 
+def test_cli_infer_enables_x64_by_default(monkeypatch, tmp_path):
+    _, _ = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+    updates: list[tuple[str, bool]] = []
+
+    monkeypatch.setattr(cli.jax.config, "update", lambda name, value: updates.append((name, value)))
+    monkeypatch.setattr(
+        cli,
+        "run_inference_pipeline",
+        lambda *_args, **_kwargs: pl.DataFrame(
+            {"mu0": [0.0], "var0": [0.1], "maf": [0.001], "name": ["pi0"], "value": [1.0]}
+        ),
+    )
+
+    code = cli.run_cli(["infer", str(valid_path)])
+
+    assert code == 0
+    assert ("jax_enable_x64", True) in updates
+
+
+def test_cli_infer_32bit_disables_x64(monkeypatch, tmp_path):
+    _, _ = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+    updates: list[tuple[str, bool]] = []
+
+    monkeypatch.setattr(cli.jax.config, "update", lambda name, value: updates.append((name, value)))
+    monkeypatch.setattr(
+        cli,
+        "run_inference_pipeline",
+        lambda *_args, **_kwargs: pl.DataFrame(
+            {"mu0": [0.0], "var0": [0.1], "maf": [0.001], "name": ["pi0"], "value": [1.0]}
+        ),
+    )
+
+    code = cli.run_cli(["infer", str(valid_path), "--32bit"])
+
+    assert code == 0
+    assert ("jax_enable_x64", False) in updates
+
+
 def test_cli_infer_accepts_supported_flags_and_writes_output(monkeypatch, tmp_path):
     stdout, stderr = _patch_streams(monkeypatch)
     valid_path = tmp_path / "sumstats.tsv"
@@ -173,6 +216,7 @@ def test_cli_infer_accepts_supported_flags_and_writes_output(monkeypatch, tmp_pa
             "2",
             "--penalty",
             "1.5",
+            "--32bit",
             "-o",
             str(output_path),
         ]
@@ -184,6 +228,83 @@ def test_cli_infer_accepts_supported_flags_and_writes_output(monkeypatch, tmp_pa
     assert "mu0" in output_text
     assert "var0" in output_text
     assert "infer: starting inference pipeline" in stderr.getvalue()
+    assert "infer: writing output" in stderr.getvalue()
+    assert_no_traceback(stderr.getvalue())
+
+
+def test_cli_infer_output_reports_min_observed_maf_for_baseline(monkeypatch, tmp_path):
+    _, stderr = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+    output_path = tmp_path / "infer.tsv"
+
+    code = cli.run_cli(
+        [
+            "infer",
+            str(valid_path),
+            "-k",
+            "3",
+            "-m",
+            "5",
+            "--lowest",
+            "0.001",
+            "--highest",
+            "0.005",
+            "--num-breaks",
+            "2",
+            "-o",
+            str(output_path),
+        ]
+    )
+
+    output_df = pl.read_csv(output_path, separator="\t")
+    baseline_maf = output_df.filter(pl.col("name") == "pi0").get_column("maf").unique()
+
+    assert code == 0
+    assert baseline_maf.len() == 1
+    assert baseline_maf.item() == pytest.approx(0.1)
+    assert "infer: writing output" in stderr.getvalue()
+    assert_no_traceback(stderr.getvalue())
+
+
+def test_cli_infer_output_ignores_boundary_af_when_reporting_baseline_maf(monkeypatch, tmp_path):
+    _, stderr = _patch_streams(monkeypatch)
+    sumstats_path = tmp_path / "sumstats.tsv"
+    _write_sumstats(
+        sumstats_path,
+        "effect_allele_frequency\tbeta\tstandard_error\n"
+        "0.0\t0.02\t0.04\n"
+        "0.1\t-0.03\t0.03\n"
+        "0.9\t0.01\t0.05\n"
+        "1.0\t0.04\t0.02\n",
+    )
+    output_path = tmp_path / "infer.tsv"
+
+    code = cli.run_cli(
+        [
+            "infer",
+            str(sumstats_path),
+            "-k",
+            "3",
+            "-m",
+            "5",
+            "--lowest",
+            "0.001",
+            "--highest",
+            "0.005",
+            "--num-breaks",
+            "2",
+            "-o",
+            str(output_path),
+        ]
+    )
+
+    output_df = pl.read_csv(output_path, separator="\t")
+    baseline_maf = output_df.filter(pl.col("name") == "pi0").get_column("maf").unique()
+
+    assert code == 0
+    assert baseline_maf.len() == 1
+    assert baseline_maf.item() == pytest.approx(0.1)
     assert "infer: writing output" in stderr.getvalue()
     assert_no_traceback(stderr.getvalue())
 

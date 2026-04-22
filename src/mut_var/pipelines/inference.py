@@ -57,8 +57,10 @@ def _build_long_dataframe(
     maf_arr = jnp.asarray(maf_grid)
     af_arr = jnp.asarray(af)
 
-    empirical_min_maf = float(jnp.minimum(jnp.min(af_arr), 1.0 - jnp.max(af_arr)))
-    maf_values = np.concatenate(([empirical_min_maf], np.asarray(maf_arr)))
+    per_row_maf = jnp.minimum(af_arr, 1.0 - af_arr)
+    positive_maf = per_row_maf[per_row_maf > 0.0]
+    baseline_maf = float(jnp.min(positive_maf)) if positive_maf.size > 0 else 0.0
+    maf_values = np.concatenate(([baseline_maf], np.asarray(maf_arr)))
     mu0 = np.asarray(jnp.pad(jnp.asarray(mu_k), (1, 0)))
     var0 = np.asarray(jnp.pad(jnp.asarray(var_k), (1, 0)))
     n_models = len(pi_rows)
@@ -217,14 +219,14 @@ def run_inference_pipeline(
             prev_params = filtered
             step_results: list[RESULTS] = []
             solution = baseline_solution
-            for threshold in np.asarray(maf_grid):
+            for break_idx, threshold in enumerate(np.asarray(maf_grid), start=1):
                 mask = _maf_subset_mask(arrays.af, float(threshold))
                 step_sol = mixture_fit.fit_refit_masked_step(
                     L_filtered,
                     mask,
                     prev_params,
                     inference_config,
-                    verbose=_solver_debug_callback(workflow_log, "refit"),
+                    verbose=_solver_debug_callback(workflow_log, f"refit {break_idx}"),
                 )
                 step_results.append(step_sol.result)
                 if not is_recoverable_result(step_sol.result):

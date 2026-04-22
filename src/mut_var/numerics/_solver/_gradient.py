@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # pattern: Functional Core
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar
+from typing import Any, cast, Generic, TypeVar
 
 import equinox as eqx
 import jax
@@ -14,7 +14,6 @@ from jaxtyping import Array, ArrayLike, PyTree, Scalar
 from optimistix import FunctionInfo
 from optimistix._custom_types import Aux, Fn
 from optimistix._misc import (
-    cauchy_termination,
     filter_cond,
     lin_to_grad,
     tree_where,
@@ -23,6 +22,51 @@ from optimistix._misc import (
 from mut_var.numerics._solver._common import default_verbose
 
 Y = TypeVar("Y")
+
+
+class _WarmStartArmijoState(eqx.Module):
+    step_size: Array
+
+
+class WarmStartBacktrackingArmijo(
+    optx.AbstractSearch[Y, optx.FunctionInfo.EvalGrad, optx.FunctionInfo.Eval, _WarmStartArmijoState]
+):
+    """Backtracking Armijo search that warm-starts from the last accepted step size."""
+
+    decrease_factor: Scalar = 0.5
+    slope: Scalar = 0.1
+    step_init: Scalar = 1.0
+
+    def init(self, y: Y, f_info_struct: optx.FunctionInfo.EvalGrad) -> _WarmStartArmijoState:
+        del y, f_info_struct
+        return _WarmStartArmijoState(step_size=jnp.asarray(self.step_init))
+
+    def step(
+        self,
+        first_step: Array,
+        y: Y,
+        y_eval: Y,
+        f_info: optx.FunctionInfo.EvalGrad,
+        f_eval_info: optx.FunctionInfo.Eval,
+        state: _WarmStartArmijoState,
+    ) -> tuple[Scalar, Array, optx.RESULTS, _WarmStartArmijoState]:
+        y_diff = (y_eval**ω - y**ω).ω
+        predicted_reduction = f_info.compute_grad_dot(y_diff)
+        f_min = f_info.as_min()
+        f_min_eval = f_eval_info.as_min()
+        f_min_diff = f_min_eval - f_min
+        satisfies_armijo = f_min_diff <= self.slope * predicted_reduction
+        has_reduction = predicted_reduction <= 0
+
+        accept = first_step | (satisfies_armijo & has_reduction)
+        next_step_size = jnp.where(accept, state.step_size, self.decrease_factor * state.step_size)
+        next_step_size = cast(Scalar, next_step_size)
+        return (
+            next_step_size,
+            accept,
+            optx.RESULTS.successful,
+            _WarmStartArmijoState(step_size=next_step_size),
+        )
 
 
 class RiemannianSteepestDescentState(eqx.Module, Generic[Y]):
@@ -86,17 +130,18 @@ class RiemannianSteepestDescent(optx.AbstractDescent[Y, optx.FunctionInfo.EvalGr
 class RiemannianGradientDescent(optx.AbstractGradientDescent[Y, Any]):
     r"""Riemannian gradient-descent minimiser: steepest descent + backtracking line search.
 
-    Composes :class:`RiemannianSteepestDescent` with
-    :class:`optimistix.BacktrackingArmijo` so ``optx.minimise`` can drive the
-    solver end-to-end: compute the Euclidean gradient via ``jax.linearize``,
-    pick a step size by backtracking on the Armijo condition, retract onto the
-    manifold through the user-supplied ``step_update``, and terminate on the
-    standard Cauchy (rtol/atol) criterion.
+    Composes :class:`RiemannianSteepestDescent` with a warm-started Armijo
+    backtracking search so ``optx.minimise`` can drive the solver end-to-end:
+    compute the Euclidean gradient via ``jax.linearize``, pick a step size by
+    backtracking on the Armijo condition, retract onto the manifold through the
+    user-supplied ``step_update``, and terminate when an accepted manifold step
+    is tiny and the corresponding objective improvement is also tiny.
     """
 
     rtol: float
     atol: float
     norm: Callable[[PyTree[Array]], Array]
+    step_norm: Callable[[Y, Y, ArrayLike], Array]
     descent: RiemannianSteepestDescent[Y]
     search: optx.AbstractSearch[Y, optx.FunctionInfo.EvalGrad, optx.FunctionInfo.Eval, Any]
     verbose: Callable[..., None]
@@ -105,6 +150,7 @@ class RiemannianGradientDescent(optx.AbstractGradientDescent[Y, Any]):
         self,
         *,
         step_update: Callable[[Y, Y, ArrayLike], Y],
+        step_norm: Callable[[Y, Y, ArrayLike], Array],
         step_size: float,
         rtol: float,
         atol: float,
@@ -115,8 +161,9 @@ class RiemannianGradientDescent(optx.AbstractGradientDescent[Y, Any]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
+        self.step_norm = step_norm
         self.descent = RiemannianSteepestDescent(step_update=step_update)
-        self.search = search if search is not None else optx.BacktrackingArmijo(step_init=step_size)
+        self.search = search if search is not None else WarmStartBacktrackingArmijo(step_init=step_size)
         self.verbose = default_verbose(verbose)
 
     def step(
@@ -145,9 +192,15 @@ class RiemannianGradientDescent(optx.AbstractGradientDescent[Y, Any]):
 
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
-            y_diff = (state.y_eval**ω - y**ω).ω
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
-            terminate = cauchy_termination(self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff)
+            accepted_step_norm = self.step_norm(y, grad, step_size)
+            step_converged = accepted_step_norm <= jnp.asarray(self.atol + self.rtol, dtype=accepted_step_norm.dtype)
+            objective_scale = self.atol + self.rtol * jnp.maximum(
+                jnp.asarray(1.0, dtype=f_eval.dtype),
+                jnp.abs(f_eval),
+            )
+            objective_converged = jnp.abs(f_diff) <= objective_scale
+            terminate = step_converged & objective_converged
             terminate = jnp.where(state.first_step, jnp.array(False), terminate)
             return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
 
@@ -186,4 +239,5 @@ __all__ = [
     "RiemannianGradientDescent",
     "RiemannianSteepestDescent",
     "RiemannianSteepestDescentState",
+    "WarmStartBacktrackingArmijo",
 ]
