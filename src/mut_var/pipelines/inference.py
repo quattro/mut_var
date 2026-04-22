@@ -44,8 +44,10 @@ def _build_long_payload(models: list[Params], maf_grid: np.ndarray, af: np.ndarr
     maf_arr = np.asarray(maf_grid, dtype=float)
     af_arr = np.asarray(af, dtype=float)
 
-    empirical_min_maf = float(np.minimum(np.min(af_arr), 1.0 - np.max(af_arr)))
-    maf_values = np.concatenate(([empirical_min_maf], maf_arr))
+    per_row_maf = np.minimum(af_arr, 1.0 - af_arr)
+    positive_maf = per_row_maf[per_row_maf > 0.0]
+    baseline_maf = float(np.min(positive_maf)) if positive_maf.size > 0 else 0.0
+    maf_values = np.concatenate(([baseline_maf], maf_arr))
     names = [f"pi{idx}" for idx in range(len(models))]
 
     # mu_k and var_k are fixed after the baseline fit; only pi varies across
@@ -242,10 +244,13 @@ def run_inference_pipeline(
     else:
         fit_state = fit_state_solution.value
         workflow_log.info("inference pipeline: fitting baseline model with config %s", inference_config)
+        baseline_prior = np.ones(fit_state.initial_params.pi.shape[0], dtype=float)
+        baseline_prior[0] = 10.0
         baseline_solution = mixture_fit_module.fit_baseline(
             state=fit_state,
             config=inference_config,
             verbose=_solver_debug_callback(workflow_log, "baseline"),
+            prior=baseline_prior,
         )
         workflow_log.info(
             "inference pipeline: baseline fit completed with result '%s'",

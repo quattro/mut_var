@@ -12,7 +12,7 @@ L must always be passed as a Fortran-order (column-major) float64 array.
 cimport cython
 import numpy as np
 cimport numpy as cnp
-from libc.math cimport log
+from libc.math cimport log, sqrt
 from scipy.linalg.cython_blas cimport dgemv, dsyrk
 
 cnp.import_array()
@@ -23,37 +23,43 @@ DTYPE = np.float64
 def compute_grad_hess(
     cnp.ndarray[DTYPE_t, ndim=2] L,
     cnp.ndarray[DTYPE_t, ndim=1] x,
+    cnp.ndarray[DTYPE_t, ndim=1] w,
+    double w_sum,
     cnp.ndarray[DTYPE_t, ndim=1] g,
     cnp.ndarray[DTYPE_t, ndim=2] H,
     cnp.ndarray[DTYPE_t, ndim=1] q,
     cnp.ndarray[DTYPE_t, ndim=2] B,
 ):
-    r"""Compute gradient and Hessian of the nonneg-reformulated objective f̃.
+    r"""Compute gradient and Hessian of the weighted nonneg-reformulated objective f̃.
 
     **Arguments:**
 
     - `L`: ``(n, m)`` Fortran-order likelihood matrix.
     - `x`: ``(m,)`` current nonneg weights.
+    - `w`: ``(n,)`` per-row weights (nonneg).
+    - `w_sum`: Scalar ``sum(w)``; used as the averaging denominator.
     - `g`: ``(m,)`` pre-allocated gradient output; overwritten in place.
     - `H`: ``(m, m)`` Fortran-order pre-allocated Hessian output; overwritten.
-    - `q`: ``(n,)`` workspace; holds ``1/(Lx)`` after the call.
-    - `B`: ``(n, m)`` Fortran-order workspace; holds ``diag(d) @ L`` after call.
+    - `q`: ``(n,)`` workspace; holds ``w / (Lx)`` after the call.
+    - `B`: ``(n, m)`` Fortran-order workspace; holds ``sqrt(w)/(Lx) * L`` after call.
 
     **Returns:**
 
     - Nothing; ``g`` and ``H`` are updated in place.
 
-    Gradient:  ``g_k = -(1/n) sum_j L[j,k] / (Lx)[j] + 1``
-    Hessian:   ``H_kl = (1/n) sum_j L[j,k] L[j,l] / (Lx)[j]^2``
+    Gradient:  ``g_k = -(1/W) sum_j w_j L[j,k] / (Lx)[j] + 1``
+    Hessian:   ``H_kl = (1/W) sum_j w_j L[j,k] L[j,l] / (Lx)[j]^2``
+    where ``W = sum(w)``.
     """
     cdef int n = L.shape[0]
     cdef int m = L.shape[1]
     cdef int i, k
-    cdef double inv_n = 1.0 / n
-    cdef double neg_inv_n = -1.0 / n
+    cdef double inv_W = 1.0 / w_sum
+    cdef double neg_inv_W = -1.0 / w_sum
     cdef double one_d = 1.0
     cdef double zero_d = 0.0
     cdef int one_i = 1
+    cdef double scale
     cdef char trans_N = b'N'
     cdef char trans_T = b'T'
     cdef char uplo_U = b'U'
@@ -62,26 +68,21 @@ def compute_grad_hess(
     dgemv(&trans_N, &n, &m, &one_d, &L[0, 0], &n, &x[0], &one_i,
           &zero_d, &q[0], &one_i)
 
-    # q <- 1/q  (d_j = 1 / (Lx)_j)
+    # q <- 1/q  (holds 1/(Lx)_j temporarily; reused for both Hessian and gradient)
     with nogil:
         for i in range(n):
             q[i] = 1.0 / q[i]
 
-    # g = -(1/n) L.T @ d + 1
-    dgemv(&trans_T, &n, &m, &neg_inv_n, &L[0, 0], &n, &q[0], &one_i,
-          &zero_d, &g[0], &one_i)
-    with nogil:
-        for k in range(m):
-            g[k] += 1.0
-
-    # B[i,k] = d[i] * L[i,k]  (scale rows of L by d = 1/(Lx))
+    # B[i,k] = sqrt(w[i]) / (Lx)_i * L[i,k]
+    # so that (B.T @ B)_{kl} = sum_j w_j L[j,k] L[j,l] / (Lx)_j^2
     with nogil:
         for i in range(n):
+            scale = sqrt(w[i]) * q[i]
             for k in range(m):
-                B[i, k] = q[i] * L[i, k]
+                B[i, k] = scale * L[i, k]
 
-    # H = (1/n) B.T @ B  via dsyrk (fills upper triangle only)
-    dsyrk(&uplo_U, &trans_T, &m, &n, &inv_n, &B[0, 0], &n,
+    # H = (1/W) B.T @ B  via dsyrk (fills upper triangle only)
+    dsyrk(&uplo_U, &trans_T, &m, &n, &inv_W, &B[0, 0], &n,
           &zero_d, &H[0, 0], &m)
 
     # Reflect upper triangle -> lower triangle (symmetrise)
@@ -90,23 +91,39 @@ def compute_grad_hess(
             for k in range(i):
                 H[i, k] = H[k, i]
 
+    # Repurpose q for the gradient: q[i] <- w[i] / (Lx)_i  (multiply current 1/(Lx) by w[i])
+    with nogil:
+        for i in range(n):
+            q[i] *= w[i]
+
+    # g = -(1/W) L.T @ (w/(Lx)) + 1
+    dgemv(&trans_T, &n, &m, &neg_inv_W, &L[0, 0], &n, &q[0], &one_i,
+          &zero_d, &g[0], &one_i)
+    with nogil:
+        for k in range(m):
+            g[k] += 1.0
+
 
 def compute_objective(
     cnp.ndarray[DTYPE_t, ndim=2] L,
     cnp.ndarray[DTYPE_t, ndim=1] x,
+    cnp.ndarray[DTYPE_t, ndim=1] w,
+    double w_sum,
     cnp.ndarray[DTYPE_t, ndim=1] q,
 ) -> double:
-    r"""Evaluate the nonneg-reformulated objective f̃ at x.
+    r"""Evaluate the weighted nonneg-reformulated objective f̃ at x.
 
     **Arguments:**
 
     - `L`: ``(n, m)`` Fortran-order likelihood matrix.
     - `x`: ``(m,)`` nonneg weights.
+    - `w`: ``(n,)`` per-row weights (nonneg).
+    - `w_sum`: Scalar ``sum(w)``; used as the averaging denominator.
     - `q`: ``(n,)`` workspace; overwritten with ``L @ x``.
 
     **Returns:**
 
-    - ``f̃(x) = -(1/n) sum_j log((Lx)_j) + sum_k x_k``
+    - ``f̃(x) = -(1/W) sum_j w_j log((Lx)_j) + sum_k x_k``
     """
     cdef int n = L.shape[0]
     cdef int m = L.shape[1]
@@ -122,8 +139,8 @@ def compute_objective(
 
     with nogil:
         for i in range(n):
-            obj -= log(q[i])
-        obj /= n
+            obj -= w[i] * log(q[i])
+        obj /= w_sum
         for k in range(m):
             obj += x[k]
 
@@ -133,6 +150,8 @@ def compute_objective(
 def line_search(
     cnp.ndarray[DTYPE_t, ndim=2] L,
     cnp.ndarray[DTYPE_t, ndim=1] x,
+    cnp.ndarray[DTYPE_t, ndim=1] w,
+    double w_sum,
     cnp.ndarray[DTYPE_t, ndim=1] p,
     double f0,
     cnp.ndarray[DTYPE_t, ndim=1] g,
@@ -143,12 +162,14 @@ def line_search(
     double c = 1e-4,
     int max_iter = 50,
 ) -> double:
-    r"""Armijo backtracking line search for the nonneg-reformulated objective.
+    r"""Armijo backtracking line search for the weighted nonneg-reformulated objective.
 
     **Arguments:**
 
     - `L`: ``(n, m)`` Fortran-order likelihood matrix.
     - `x`: ``(m,)`` current point.
+    - `w`: ``(n,)`` per-row weights (nonneg).
+    - `w_sum`: Scalar ``sum(w)``; averaging denominator.
     - `p`: ``(m,)`` search direction.
     - `f0`: Objective value at ``x``.
     - `g`: ``(m,)`` gradient at ``x``.
@@ -193,8 +214,8 @@ def line_search(
                 qi_val = q[i]
                 if qi_val <= 0.0:
                     qi_val = 1e-300
-                f_try -= log(qi_val)
-            f_try /= n
+                f_try -= w[i] * log(qi_val)
+            f_try /= w_sum
             for k in range(m):
                 f_try += x_try[k]
 

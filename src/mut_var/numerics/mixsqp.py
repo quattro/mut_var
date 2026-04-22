@@ -339,6 +339,7 @@ def _normalise(x: np.ndarray) -> np.ndarray:
 def mix_sqp(
     L: np.ndarray,
     x0: np.ndarray | None = None,
+    w: np.ndarray | None = None,
     max_iter: int = 100,
     atol: float = 1e-3,
     rtol: float = 1e-3,
@@ -380,6 +381,16 @@ def mix_sqp(
     row_max = np.maximum(row_max, np.finfo(float).tiny)
     L_f = np.asfortranarray(L / row_max)
 
+    if w is None:
+        w_arr = np.ones(L.shape[0], dtype=float)
+    else:
+        w_arr = np.ascontiguousarray(w, dtype=float)
+        if w_arr.shape != (L.shape[0],):
+            raise ValueError(f"w must have shape ({L.shape[0]},), got {w_arr.shape}")
+    w_sum = float(w_arr.sum())
+    if w_sum <= 0.0:
+        raise ValueError("sum(w) must be positive")
+
     x = _init_weights(x0, m)
 
     # Preallocate workspaces passed into the Cython hot path to avoid repeated
@@ -391,7 +402,7 @@ def mix_sqp(
     B = np.zeros((L.shape[0], m), order="F")
     x_try = np.zeros(m)
 
-    f = compute_objective(L_f, x, q.copy())
+    f = compute_objective(L_f, x, w_arr, w_sum, q.copy())
     log_fn = _make_log_fn(verbose)
 
     converged = False
@@ -399,7 +410,7 @@ def mix_sqp(
     for iteration in range(max_iter):
         # Outer SQP step: approximate the objective locally by a quadratic
         # using the current gradient g and Hessian H, then solve that QP.
-        compute_grad_hess(L_f, x, g, H, q, B)
+        compute_grad_hess(L_f, x, w_arr, w_sum, g, H, q, B)
 
         # The local QP is: min 1/2 y'Hy + y'a  s.t.  y >= 0
         # where a = g - Hx shifts the quadratic so the unconstrained minimiser
@@ -409,9 +420,9 @@ def mix_sqp(
         p = y_star - x  # SQP search direction
 
         # Armijo backtracking line search along p to ensure sufficient decrease.
-        alpha = line_search(L_f, x, p, f, g, q.copy(), x_try.copy())
+        alpha = line_search(L_f, x, w_arr, w_sum, p, f, g, q.copy(), x_try.copy())
         x_new = np.maximum(x + alpha * p, 0.0)
-        f_new = compute_objective(L_f, x_new, q.copy())
+        f_new = compute_objective(L_f, x_new, w_arr, w_sum, q.copy())
 
         if log_fn is not None:
             log_fn(step=iteration + 1, obj=float(f_new))
@@ -437,6 +448,7 @@ def mix_sqp_ordered(
     A: np.ndarray,
     baseline: np.ndarray,
     x0: np.ndarray | None = None,
+    w: np.ndarray | None = None,
     max_iter: int = 100,
     atol: float = 1e-3,
     rtol: float = 1e-3,
@@ -477,6 +489,16 @@ def mix_sqp_ordered(
     row_max = np.maximum(row_max, np.finfo(float).tiny)
     L_f = np.asfortranarray(L / row_max)
 
+    if w is None:
+        w_arr = np.ones(L.shape[0], dtype=float)
+    else:
+        w_arr = np.ascontiguousarray(w, dtype=float)
+        if w_arr.shape != (L.shape[0],):
+            raise ValueError(f"w must have shape ({L.shape[0]},), got {w_arr.shape}")
+    w_sum = float(w_arr.sum())
+    if w_sum <= 0.0:
+        raise ValueError("sum(w) must be positive")
+
     # Default initialisation from the baseline proportions so the starting
     # point is consistent with the ordering constraints.
     if x0 is None:
@@ -493,13 +515,13 @@ def mix_sqp_ordered(
     B = np.zeros((L.shape[0], m), order="F")
     x_try = np.zeros(m)
 
-    f = compute_objective(L_f, x, q.copy())
+    f = compute_objective(L_f, x, w_arr, w_sum, q.copy())
     log_fn = _make_log_fn(verbose)
 
     converged = False
     n_iter = 0
     for iteration in range(max_iter):
-        compute_grad_hess(L_f, x, g, H, q, B)
+        compute_grad_hess(L_f, x, w_arr, w_sum, g, H, q, B)
 
         # Local QP with both bound and ordering constraints:
         #   min 1/2 y'Hy + y'a   s.t.   y >= 0,  Ay <= 0
@@ -507,9 +529,9 @@ def mix_sqp_ordered(
         y_star = solve_qp_ordered(H, a, A, x.copy(), max_iter=inner_max_iter)
         p = y_star - x
 
-        alpha = line_search(L_f, x, p, f, g, q.copy(), x_try.copy())
+        alpha = line_search(L_f, x, w_arr, w_sum, p, f, g, q.copy(), x_try.copy())
         x_new = np.maximum(x + alpha * p, 0.0)
-        f_new = compute_objective(L_f, x_new, q.copy())
+        f_new = compute_objective(L_f, x_new, w_arr, w_sum, q.copy())
 
         if log_fn is not None:
             log_fn(step=iteration + 1, obj=float(f_new))

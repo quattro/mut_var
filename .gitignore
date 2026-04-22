@@ -12,6 +12,7 @@ tmp.*
 *.c
 
 # Temporary and binary files
+ashr/
 *~
 *.py[cod]
 *.so

@@ -47,6 +47,32 @@ def _build_likelihood_matrix(
     return L
 
 
+def _augment_with_prior(L: np.ndarray, prior: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    r"""Return ``(L_aug, w_aug)`` encoding a Dirichlet(prior) log-prior on pi.
+
+    Matches ashr's ``rbind(diag(k), matrix_lik)`` trick: for each component ``k``
+    append a single ``e_k`` row and set its weight to ``prior_k - 1``. Rows with
+    zero weight (``prior_k == 1``) are dropped so the solver skips them.
+
+    Supports arbitrary real ``prior_k >= 1``. Values in ``(0, 1)`` would flip the
+    sign of the log-barrier and break convexity of the solver's objective.
+    """
+    K = L.shape[1]
+    if prior.shape != (K,):
+        raise ValueError(f"prior must have shape ({K},), got {tuple(prior.shape)}")
+    weights = prior - 1.0
+    if (weights < 0.0).any():
+        raise ValueError("prior entries must be >= 1")
+    n = L.shape[0]
+    data_w = np.ones(n, dtype=float)
+    keep = weights > 0.0
+    if not keep.any():
+        return L, data_w
+    aug_rows = np.eye(K, dtype=float)[keep]
+    aug_w = weights[keep]
+    return np.vstack([L, aug_rows]), np.concatenate([data_w, aug_w])
+
+
 def _floor_zero_rows(L: np.ndarray) -> np.ndarray:
     row_sums = L.sum(axis=1)
     zero_rows = row_sums == 0.0
@@ -238,6 +264,7 @@ def fit_baseline(
     state: FitState,
     config: InferenceConfig,
     verbose: bool | Callable[..., None] = False,
+    prior: np.ndarray | None = None,
 ) -> Solution:
     r"""Fit baseline mixture weights via mix-SQP on a prepared likelihood matrix.
 
@@ -246,6 +273,7 @@ def fit_baseline(
     - `state`: Prepared fit state containing a likelihood matrix and initial component grid.
     - `config`: Inference numerics configuration.
     - `verbose`: Optional mix-SQP progress callback.
+    - `prior`: Optional per-component Dirichlet prior vector; defaults to ones (no penalty).
 
     **Returns:**
 
@@ -279,9 +307,12 @@ def fit_baseline(
             stats={"reason": "likelihood matrix columns must align with initial_params"},
         )
 
+    prior_arr = np.ones(L.shape[1], dtype=float) if prior is None else np.asarray(prior, dtype=float)
+    L_aug, w_aug = _augment_with_prior(L, prior_arr)
     try:
         pi, info = mix_sqp(
-            L,
+            L_aug,
+            w=w_aug,
             max_iter=config.max_iter,
             atol=config.atol,
             rtol=config.rtol,
@@ -314,6 +345,7 @@ def fit_refit_step(
     prev_params: Params,
     config: InferenceConfig,
     verbose: bool | Callable[..., None] = False,
+    prior: np.ndarray | None = None,
 ) -> Solution:
     r"""Fit one ordered refit step on a likelihood submatrix.
 
@@ -323,6 +355,7 @@ def fit_refit_step(
     - `prev_params`: Previous threshold parameters used as ordered baseline.
     - `config`: Inference numerics configuration.
     - `verbose`: Optional mix-SQP-ordered progress callback.
+    - `prior`: Optional per-component Dirichlet prior vector; defaults to ones (no penalty).
 
     **Returns:**
 
@@ -359,11 +392,14 @@ def fit_refit_step(
 
     A = build_ordering_matrix(prev_params.pi)
 
+    prior_arr = np.ones(L_sub_arr.shape[1], dtype=float) if prior is None else np.asarray(prior, dtype=float)
+    L_aug, w_aug = _augment_with_prior(L_sub_arr, prior_arr)
     try:
         pi, info = mix_sqp_ordered(
-            L_sub_arr,
+            L_aug,
             A=A,
             baseline=prev_params.pi,
+            w=w_aug,
             max_iter=config.max_iter,
             atol=config.atol,
             rtol=config.rtol,
