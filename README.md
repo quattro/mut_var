@@ -31,6 +31,7 @@ pip install mut-var
 - MAF grid rules:
   - `0 < lowest < highest <= 0.5`
   - `num_breaks >= 2`
+  - `--lowest` defaults to the minimum observed MAF in the input data when not explicitly set.
 - Failure contract:
   - Invalid CLI arguments or invalid input data return a deterministic non-zero exit code.
   - Errors are emitted as actionable stderr messages.

@@ -179,7 +179,7 @@ def run_inference_pipeline(
     af_col: str = "effect_allele_frequency",
     beta_col: str = "beta",
     se_col: str = "standard_error",
-    lowest: float = 1e-5,
+    lowest: float | None = None,
     highest: float = 1e-2,
     num_breaks: int = 10,
     config: InferenceConfig | None = None,
@@ -193,7 +193,10 @@ def run_inference_pipeline(
     - `af_col`: AF column name.
     - `beta_col`: Effect-size column name.
     - `se_col`: Standard-error column name.
-    - `lowest`: Minimum MAF threshold for grid construction.
+    - `lowest`: Minimum MAF threshold for grid construction. When `None`
+      (default), the lower bound is auto-derived from the data as the minimum
+      observed MAF so the baseline point and the first refit threshold share
+      the same left edge.
     - `highest`: Maximum MAF threshold for grid construction.
     - `num_breaks`: Number of MAF grid breakpoints.
     - `config`: Optional numerics config; defaults to `InferenceConfig(num_clusters=30)`.
@@ -212,11 +215,30 @@ def run_inference_pipeline(
     inference_config = config if config is not None else InferenceConfig(num_clusters=30)
 
     workflow_log.info("inference pipeline: validating input data")
-    validate_maf_grid(lowest, highest, num_breaks)
     arrays = load_inference_arrays(path, af_col, beta_col, se_col)
+
+    if lowest is None:
+        # Auto-derive the grid floor from the observed MAF distribution so the
+        # first refit threshold lands on real data rather than a fixed default
+        # that can sit a decade above the smallest observation.
+        per_row_maf = np.minimum(arrays.af, 1.0 - arrays.af)
+        positive_maf = per_row_maf[per_row_maf > 0.0]
+        if positive_maf.size == 0:
+            raise ValueError(
+                "cannot auto-derive maf grid lower bound: all observations have MAF == 0. " "Pass an explicit `lowest`."
+            )
+        resolved_lowest = float(np.min(positive_maf))
+        workflow_log.info(
+            "inference pipeline: auto-derived maf grid lowest=%g from data",
+            resolved_lowest,
+        )
+    else:
+        resolved_lowest = float(lowest)
+
+    validate_maf_grid(resolved_lowest, highest, num_breaks)
     workflow_log.info("inference pipeline: input validation complete")
     workflow_log.info("inference pipeline: building maf grid and masks")
-    maf_grid = np.exp(np.linspace(np.log(lowest), np.log(highest), num_breaks))
+    maf_grid = np.exp(np.linspace(np.log(resolved_lowest), np.log(highest), num_breaks))
     maf_masks = build_maf_masks(arrays.af, maf_grid)
 
     workflow_log.info("inference pipeline: starting numerics")

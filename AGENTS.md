@@ -24,6 +24,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Orchestration/input errors use built-in exception types (`ValueError`, `FileNotFoundError`, `RuntimeError`) instead of custom error hierarchies.
   - High-level workflow paths emit step-level progress logs (load/validate/run/prepare/write) through logging, not ad-hoc prints.
   - Curve fit-only mode (`generate_plots=False` / `mutvar curve --fit-only`) performs no plotting side effects.
+  - `run_inference_pipeline(lowest=None)` auto-derives the MAF grid lower bound from the minimum observed MAF in the input data; explicit `lowest` overrides this.
 - **Expects**:
   - Input data includes required AF/BETA/SE fields (or explicit column overrides).
   - Domain constraints hold (`effect_allele_frequency` in `[0,1]`, `standard_error > 0`).

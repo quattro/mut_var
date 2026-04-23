@@ -117,7 +117,12 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         help="Weight threshold for post-fit component filtering.",
     )
     grid_group = infer.add_argument_group("MAF Grid")
-    grid_group.add_argument("--lowest", type=float, default=1e-5, help="Minimum MAF grid value.")
+    grid_group.add_argument(
+        "--lowest",
+        type=float,
+        default=None,
+        help="Minimum MAF grid value. Defaults to the minimum observed MAF in the input data.",
+    )
     grid_group.add_argument("--highest", type=float, default=1e-2, help="Maximum MAF grid value.")
     grid_group.add_argument("--num-breaks", type=int, default=10, help="Number of MAF grid breakpoints.")
 

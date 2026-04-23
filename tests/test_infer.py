@@ -172,6 +172,35 @@ def test_run_inference_pipeline_accepts_path_input():
     assert result_df.columns == ["mu0", "var0", "maf", "name", "value"]
 
 
+def test_run_inference_pipeline_auto_derives_lowest_from_data():
+    # Fixture has MAFs {0.1, 0.2, 0.3, 0.4}; auto-derive should land at 0.1.
+    result_df = run_inference_dataframe_pipeline(
+        "tests/fixtures/sumstats_valid.tsv",
+        highest=0.15,
+        num_breaks=2,
+        config=InferenceConfig(num_clusters=3, max_iter=5),
+    )
+
+    maf_values = sorted(set(result_df["maf"].to_list()))
+    # Baseline row sits at min observed MAF (0.1); first grid breakpoint coincides with it.
+    assert maf_values[0] == pytest.approx(0.1)
+
+
+def test_run_inference_pipeline_respects_explicit_lowest():
+    # Auto-derive would pick 0.1; explicit lowest=0.15 must override.
+    result_df = run_inference_dataframe_pipeline(
+        "tests/fixtures/sumstats_valid.tsv",
+        lowest=0.15,
+        highest=0.25,
+        num_breaks=2,
+        config=InferenceConfig(num_clusters=3, max_iter=5),
+    )
+
+    maf_values = sorted(set(result_df["maf"].to_list()))
+    # Baseline row still sits at min observed MAF (0.1); first grid breakpoint sits at 0.15.
+    assert any(v == pytest.approx(0.15) for v in maf_values)
+
+
 def test_package_root_exports_canonical_pipeline_entrypoints():
     assert callable(mut_var.run_inference_pipeline)
     assert callable(mut_var.run_curve_pipeline)
