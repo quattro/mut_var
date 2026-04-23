@@ -246,20 +246,6 @@ Behavior guarantees:
   remain unchanged.
 - Curve output is method-neutral and records `var0`, `method`, `param_name`, and `param_value`.
 
-## Migration Guide
-
-This release is a breaking release. Migration summary:
-
-1. Replace direct imports of legacy CLI internals with package-root pipeline APIs.
-2. Use path-based pipeline APIs (`run_inference_pipeline`, `run_curve_pipeline`) at the orchestration boundary.
-3. Treat `Solution.result` as the canonical success/failure signal for numerics-level APIs.
-4. Update automation to required gates:
-   - `ruff check src/mut_var tests`
-   - `mypy src/mut_var tests`
-   - `pytest -p no:capture`
-
-Detailed breaking-change notes are in `CHANGELOG.md`.
-
 ## Performance Profiling Status
 
 Performance profiling is currently out of scope for supported workflows in this repository.
