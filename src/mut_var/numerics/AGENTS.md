@@ -1,6 +1,6 @@
 # Numerics Domain
 
-Last verified: 2026-04-13
+Last verified: 2026-04-23
 
 ## Purpose
 Provide array-only numerical kernels for mutation-variance estimation with explicit solver status channels.

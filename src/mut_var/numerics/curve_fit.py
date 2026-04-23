@@ -26,12 +26,18 @@ CurveMethod = Literal["sigmoid", "isotonic"]
 class CurveFitResult(NamedTuple):
     r"""Method-neutral fitted curve representation.
 
+    For ``method="sigmoid"``, ``payload`` holds the decoded 4-vector
+    ``(left, right, rate, midpoint)`` and ``support``/``increasing`` are unused.
+    For ``method="isotonic"``, ``payload`` holds the fitted step-function levels
+    on ``support`` (the unique MAF grid), and ``increasing`` records the
+    monotonic direction.
+
     **Arguments:**
 
     - `method`: Curve-fitting method name.
     - `payload`: Method-specific fitted state.
-    - `support`: Optional support values used by monotone evaluators.
-    - `increasing`: Optional monotonic direction hint.
+    - `support`: Unique MAF support for isotonic fits; ``None`` for sigmoid.
+    - `increasing`: Isotonic monotonic direction flag; ``None`` for sigmoid.
 
     """
 
@@ -148,9 +154,10 @@ def _evaluate_sigmoid_curve(maf: np.ndarray, coef: np.ndarray) -> np.ndarray:
 
 
 def _evaluate_isotonic_curve(fit: CurveFitResult, maf: np.ndarray) -> np.ndarray:
-    if fit.support is None:
-        raise ValueError("isotonic CurveFitResult is missing support array")
+    # The isotonic fit is a step function on the unique support grid; for each
+    # query MAF, find the largest support value <= query and return its level.
     support = fit.support
+    assert support is not None  # enforced by _fit_isotonic_curve_model
     indices = np.searchsorted(support, maf, side="right") - 1
     indices = np.clip(indices, 0, support.size - 1)
     return fit.payload[indices]
@@ -170,9 +177,7 @@ def evaluate_curve_fit(fit: CurveFitResult, maf: np.ndarray) -> np.ndarray:
     """
     if fit.method == "sigmoid":
         return _evaluate_sigmoid_curve(maf, fit.payload)
-    if fit.method == "isotonic":
-        return _evaluate_isotonic_curve(fit, maf)
-    raise ValueError(f"unsupported curve fit method: {fit.method}")
+    return _evaluate_isotonic_curve(fit, maf)
 
 
 def _fit_sigmoid_curve_model(maf: np.ndarray, value: np.ndarray) -> Solution:

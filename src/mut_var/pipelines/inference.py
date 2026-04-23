@@ -25,8 +25,9 @@ if TYPE_CHECKING:
 
 
 def _filter_components(params: Params, threshold: float) -> tuple[Params, np.ndarray]:
+    # Drop signal components with negligible weight but always retain the
+    # null component (index 0) so the point mass at zero stays in the model.
     keep = params.pi > threshold
-    keep = keep.copy()
     keep[0] = True
     pi = params.pi[keep]
     pi = pi / np.sum(pi)
@@ -44,6 +45,8 @@ def _build_long_payload(models: list[Params], maf_grid: np.ndarray, af: np.ndarr
     maf_arr = np.asarray(maf_grid, dtype=float)
     af_arr = np.asarray(af, dtype=float)
 
+    # The baseline row uses the smallest observed MAF as its "threshold" so it
+    # sits below the grid when the output is plotted in MAF order.
     per_row_maf = np.minimum(af_arr, 1.0 - af_arr)
     positive_maf = per_row_maf[per_row_maf > 0.0]
     baseline_maf = float(np.min(positive_maf)) if positive_maf.size > 0 else 0.0
@@ -54,9 +57,6 @@ def _build_long_payload(models: list[Params], maf_grid: np.ndarray, af: np.ndarr
     # MAF thresholds, so models[0] is the canonical source for component means/variances.
     mu0 = np.pad(models[0].mu_k, (1, 0)).astype(float)
     var0 = np.pad(models[0].var_k, (1, 0)).astype(float)
-
-    if any(model.pi.shape[0] != mu0.shape[0] for model in models):
-        raise ValueError("All models must keep the same number of mixture components.")
 
     values = np.concatenate([np.asarray(model.pi, dtype=float) for model in models])
     n_comp = int(mu0.shape[0])
@@ -112,17 +112,10 @@ def _run_refit_grid(
     config: InferenceConfig,
     workflow_log: logging.Logger,
 ) -> Solution:
-    L_arr = np.asarray(L_full, dtype=float)
-    masks_arr = np.asarray(maf_masks, dtype=bool)
-
-    if L_arr.ndim != 2 or masks_arr.ndim != 2 or L_arr.shape[0] != masks_arr.shape[1]:
-        return Solution(
-            value=[init],
-            result=RESULTS.invalid_input,
-            stats={"reason": "refit likelihood matrix must align with maf masks"},
-        )
-
-    active_obs = np.any(masks_arr, axis=0)
+    # Compress out observations that pass no MAF threshold; this shrinks every
+    # submatrix slice below and keeps the solver from seeing rows that never
+    # contribute to any refit.
+    active_obs = np.any(maf_masks, axis=0)
     if not active_obs.any():
         return Solution(
             value=[init],
@@ -130,8 +123,8 @@ def _run_refit_grid(
             stats={"reason": "no observations are active for refit"},
         )
 
-    L_active = L_arr[active_obs]
-    masks_active = masks_arr[:, active_obs]
+    L_active = L_full[active_obs]
+    masks_active = maf_masks[:, active_obs]
 
     models: list[Params] = [init]
     any_max_steps = False
@@ -143,8 +136,7 @@ def _run_refit_grid(
             idx + 1,
             masks_active.shape[0],
         )
-        n_obs = int(mask.sum())
-        if n_obs == 0:
+        if not mask.any():
             return Solution(
                 value=models,
                 result=RESULTS.empty_subset,

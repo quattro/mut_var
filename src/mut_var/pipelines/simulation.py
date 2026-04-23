@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 
-import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
@@ -11,26 +10,22 @@ from mut_var.pipelines.artifacts import SimulationArtifacts
 from mut_var.types import RESULTS, SimulationConfig, Solution
 
 
-def _to_numpy(values: jnp.ndarray | object, dtype: np.dtype) -> np.ndarray:
-    return np.asarray(jnp.asarray(values), dtype=dtype)
-
-
 def _pipeline_reason(solution: Solution) -> str:
     if isinstance(solution.stats, dict):
         reason = solution.stats.get("reason")
         if isinstance(reason, str) and reason.strip():
             return reason
-    return f"simulation failed with status '{RESULTS[solution.result]}'."
+    return f"simulation failed with status '{solution.result.value}'."
 
 
 def _truth_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
     return pl.DataFrame(
         {
-            "row_id": _to_numpy(arrays.row_id, np.int64),
-            "component": _to_numpy(arrays.component, np.int64),
-            "beta_true": _to_numpy(arrays.beta_true, np.float64),
-            "sigma2": _to_numpy(arrays.sigma2, np.float64),
-            "effect_allele_frequency": _to_numpy(arrays.af, np.float64),
+            "row_id": np.asarray(arrays.row_id, dtype=np.int64),
+            "component": np.asarray(arrays.component, dtype=np.int64),
+            "beta_true": np.asarray(arrays.beta_true, dtype=np.float64),
+            "sigma2": np.asarray(arrays.sigma2, dtype=np.float64),
+            "effect_allele_frequency": np.asarray(arrays.af, dtype=np.float64),
         }
     ).select(
         [
@@ -46,10 +41,10 @@ def _truth_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
 def _observed_dataframe(arrays: SimulationArrays) -> pl.DataFrame:
     return pl.DataFrame(
         {
-            "row_id": _to_numpy(arrays.row_id, np.int64),
-            "effect_allele_frequency": _to_numpy(arrays.af, np.float64),
-            "beta": _to_numpy(arrays.beta_hat, np.float64),
-            "standard_error": _to_numpy(arrays.se, np.float64),
+            "row_id": np.asarray(arrays.row_id, dtype=np.int64),
+            "effect_allele_frequency": np.asarray(arrays.af, dtype=np.float64),
+            "beta": np.asarray(arrays.beta_hat, dtype=np.float64),
+            "standard_error": np.asarray(arrays.se, dtype=np.float64),
         }
     ).select(
         [

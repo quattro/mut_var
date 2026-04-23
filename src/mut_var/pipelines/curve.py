@@ -13,6 +13,7 @@ from mut_var.types import RESULTS, Solution
 
 
 def _to_scalar_var(variance) -> float:
+    # polars.group_by returns the group key as a tuple of key columns.
     if isinstance(variance, tuple):
         return float(variance[0])
     return float(variance)
@@ -32,39 +33,37 @@ def _parameter_rows(var0: float, fit: CurveFitResult) -> list[dict[str, str | fl
             for name, value in zip(names, values, strict=True)
         ]
 
-    if fit.method == "isotonic":
-        if fit.support is None:
-            raise ValueError("isotonic fit is missing support values")
-        rows: list[dict[str, str | float]] = [
+    # Isotonic fits are emitted as a direction flag plus paired (x_i, y_i)
+    # rows on the unique support; the downstream consumer reassembles the
+    # step function from this representation.
+    rows: list[dict[str, str | float]] = [
+        {
+            "var0": var0,
+            "method": fit.method,
+            "param_name": "increasing",
+            "param_value": float(bool(fit.increasing)),
+        }
+    ]
+    support = np.asarray(fit.support, dtype=float)
+    payload = np.asarray(fit.payload, dtype=float)
+    for idx, (x_val, y_val) in enumerate(zip(support, payload, strict=True)):
+        rows.append(
             {
                 "var0": var0,
                 "method": fit.method,
-                "param_name": "increasing",
-                "param_value": float(bool(fit.increasing)),
+                "param_name": f"x_{idx}",
+                "param_value": float(x_val),
             }
-        ]
-        support = np.asarray(fit.support, dtype=float)
-        payload = np.asarray(fit.payload, dtype=float)
-        for idx, (x_val, y_val) in enumerate(zip(support, payload, strict=True)):
-            rows.append(
-                {
-                    "var0": var0,
-                    "method": fit.method,
-                    "param_name": f"x_{idx}",
-                    "param_value": float(x_val),
-                }
-            )
-            rows.append(
-                {
-                    "var0": var0,
-                    "method": fit.method,
-                    "param_name": f"y_{idx}",
-                    "param_value": float(y_val),
-                }
-            )
-        return rows
-
-    raise ValueError(f"unsupported curve method: {fit.method}")
+        )
+        rows.append(
+            {
+                "var0": var0,
+                "method": fit.method,
+                "param_name": f"y_{idx}",
+                "param_value": float(y_val),
+            }
+        )
+    return rows
 
 
 def _parameters_dataframe(rows: list[dict[str, str | float]]) -> pl.DataFrame:
@@ -164,8 +163,6 @@ def run_curve_pipeline(
             )
 
         fit_result = fit_solution.value
-        if fit_result is None:
-            raise RuntimeError(f"curve fit returned no result at var0={var0}")
         parameter_rows.extend(_parameter_rows(var0, fit_result))
 
         if generate_plots:

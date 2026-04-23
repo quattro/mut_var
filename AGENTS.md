@@ -1,6 +1,6 @@
 # mut_var
 
-Last verified: 2026-04-13
+Last verified: 2026-04-23
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.

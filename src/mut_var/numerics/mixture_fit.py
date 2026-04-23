@@ -33,7 +33,14 @@ def _build_likelihood_matrix(
     mu_k: np.ndarray,
     var_k: np.ndarray,
 ) -> np.ndarray:
-    r"""Build ``(n, K)`` likelihood matrix for fixed mixture components."""
+    r"""Build ``(n, K)`` likelihood matrix for fixed mixture components.
+
+    Column 0 is the point-mass-at-zero component (normal with variance ``s2``);
+    columns ``1..K-1`` cover the continuous components with mean ``mu_k[k-1]``
+    and total variance ``s2 + var_k[k-1]``. Sampling variance ``s2`` is folded
+    into every component so the likelihood is expressed directly in the
+    observed ``beta_hat`` space.
+    """
     n = len(beta_hat)
     K = len(var_k) + 1
     L = np.empty((n, K), dtype=float)
@@ -54,12 +61,10 @@ def _augment_with_prior(L: np.ndarray, prior: np.ndarray) -> tuple[np.ndarray, n
     append a single ``e_k`` row and set its weight to ``prior_k - 1``. Rows with
     zero weight (``prior_k == 1``) are dropped so the solver skips them.
 
-    Supports arbitrary real ``prior_k >= 1``. Values in ``(0, 1)`` would flip the
-    sign of the log-barrier and break convexity of the solver's objective.
+    Only real ``prior_k >= 1`` is supported. Values in ``(0, 1)`` flip the sign
+    of the log-barrier and break convexity of the solver's objective.
     """
     K = L.shape[1]
-    if prior.shape != (K,):
-        raise ValueError(f"prior must have shape ({K},), got {tuple(prior.shape)}")
     weights = prior - 1.0
     if (weights < 0.0).any():
         raise ValueError("prior entries must be >= 1")
@@ -74,6 +79,9 @@ def _augment_with_prior(L: np.ndarray, prior: np.ndarray) -> tuple[np.ndarray, n
 
 
 def _floor_zero_rows(L: np.ndarray) -> np.ndarray:
+    # Rows where every component has likelihood zero would make log(Lx) = -inf
+    # anywhere in the simplex. Floor them so those observations contribute a
+    # negligible-but-finite term to the objective.
     row_sums = L.sum(axis=1)
     zero_rows = row_sums == 0.0
     if zero_rows.any():
@@ -82,12 +90,9 @@ def _floor_zero_rows(L: np.ndarray) -> np.ndarray:
     return L
 
 
-def _validate_array_inputs(
-    beta_hat: Any,
-    s2: Any,
-    *,
-    require_min_clusters: int | None = None,
-) -> Solution:
+def _validate_array_inputs(beta_hat: Any, s2: Any) -> Solution:
+    # Boundary check for the sole array entrypoint (`prepare_fit_state`).
+    # Downstream numerics trust the FitState produced here and do not re-check.
     if hasattr(beta_hat, "columns") or hasattr(s2, "columns"):
         return Solution(
             value=None,
@@ -95,15 +100,8 @@ def _validate_array_inputs(
             stats={"reason": "mixture kernel expects arrays, not tabular objects"},
         )
 
-    try:
-        beta_hat_arr = np.asarray(beta_hat, dtype=float)
-        s2_arr = np.asarray(s2, dtype=float)
-    except Exception as exc:
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": f"failed to convert inputs to arrays: {exc}"},
-        )
+    beta_hat_arr = np.asarray(beta_hat, dtype=float)
+    s2_arr = np.asarray(s2, dtype=float)
 
     if beta_hat_arr.ndim != 1 or s2_arr.ndim != 1 or beta_hat_arr.shape[0] != s2_arr.shape[0]:
         return Solution(
@@ -133,17 +131,13 @@ def _validate_array_inputs(
             stats={"reason": "s2 must be strictly positive"},
         )
 
-    if require_min_clusters is not None and require_min_clusters < 2:
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": "num_clusters must be >= 2"},
-        )
-
     return Solution(value=(beta_hat_arr, s2_arr), result=RESULTS.successful)
 
 
 def _build_baseline_params(beta_hat: np.ndarray, s2: np.ndarray, config: InferenceConfig) -> Params:
+    # Component grid spans from well below the noise floor to above the
+    # largest plausible true variance, on a log scale. Using a method-of-moments
+    # upper bound keeps the grid adaptive to the data without overshooting.
     std_err = np.sqrt(s2)
     min_val = float(np.min(std_err)) / 10.0
     # max(beta^2 - s2) is a method-of-moments upper bound on the true effect variance.
@@ -157,63 +151,11 @@ def _build_baseline_params(beta_hat: np.ndarray, s2: np.ndarray, config: Inferen
     if not np.isfinite(max_val) or max_val <= 0.0:
         max_val = 8.0 * min_val
 
+    # Squared because var_k stores variances, not standard deviations.
     var_k = np.exp(np.linspace(np.log(min_val), np.log(max_val), config.num_clusters - 1)) ** 2
     mu_k = np.zeros(config.num_clusters - 1)
     pi = np.ones(config.num_clusters, dtype=float) / float(config.num_clusters)
     return Params(pi=pi, mu_k=mu_k, var_k=var_k)
-
-
-def _validate_likelihood_matrix(L: Any, *, name: str = "likelihood matrix") -> Solution:
-    try:
-        L_arr = np.asarray(L, dtype=float)
-    except Exception as exc:
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": f"failed to convert {name} to array: {exc}"},
-        )
-
-    if L_arr.ndim != 2 or L_arr.shape[0] == 0 or L_arr.shape[1] == 0:
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": f"{name} must be a non-empty 2D array"},
-        )
-
-    if not np.isfinite(L_arr).all():
-        return Solution(
-            value=None,
-            result=RESULTS.nonfinite_objective,
-            stats={"reason": f"{name} contains non-finite values"},
-        )
-
-    return Solution(value=_floor_zero_rows(L_arr), result=RESULTS.successful)
-
-
-def _validate_params(params: Params, *, name: str = "params") -> Solution | None:
-    if not isinstance(params, Params):
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": f"{name} must be Params"},
-        )
-
-    n_components = int(params.pi.shape[0])
-    if params.mu_k.shape[0] != n_components - 1 or params.var_k.shape[0] != n_components - 1:
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": f"{name} arrays are not component-aligned"},
-        )
-
-    if n_components == 0 or not np.isfinite(params.pi).all() or not np.isfinite(params.var_k).all():
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": f"{name} contains invalid values"},
-        )
-
-    return None
 
 
 def prepare_fit_state(
@@ -235,23 +177,38 @@ def prepare_fit_state(
 
     **Failure Modes:**
 
-    - Returns `RESULTS.invalid_input` for non-array, non-finite, or shape-invalid inputs.
+    - Returns `RESULTS.invalid_input` for non-array, non-finite, or shape-invalid
+      inputs, or when `config.num_clusters < 2`.
     - Returns `RESULTS.empty_subset` when no observations are available.
     - Returns `RESULTS.nonfinite_objective` when the likelihood matrix is non-finite.
     """
-    validated = _validate_array_inputs(beta_hat, s2, require_min_clusters=config.num_clusters)
+    if config.num_clusters < 2:
+        return Solution(
+            value=None,
+            result=RESULTS.invalid_input,
+            stats={"reason": "num_clusters must be >= 2"},
+        )
+
+    validated = _validate_array_inputs(beta_hat, s2)
     if not validated.ok:
         return validated
     beta_hat_arr, s2_arr = validated.value
 
     params = _build_baseline_params(beta_hat_arr, s2_arr, config)
     L = _build_likelihood_matrix(beta_hat_arr, s2_arr, params.mu_k, params.var_k)
-    validated_likelihood = _validate_likelihood_matrix(L)
-    if not validated_likelihood.ok:
-        return validated_likelihood
+    if not np.isfinite(L).all():
+        # Non-finite likelihoods indicate a broken component grid or extreme
+        # inputs that slipped past the boundary checks; escalate as a numerics
+        # failure rather than silently masking.
+        return Solution(
+            value=None,
+            result=RESULTS.nonfinite_objective,
+            stats={"reason": "likelihood matrix contains non-finite values"},
+        )
+    L = _floor_zero_rows(L)
 
     return Solution(
-        value=FitState(likelihood_matrix=validated_likelihood.value, initial_params=params),
+        value=FitState(likelihood_matrix=L, initial_params=params),
         result=RESULTS.successful,
         stats={
             "num_observations": int(beta_hat_arr.shape[0]),
@@ -281,32 +238,9 @@ def fit_baseline(
 
     **Failure Modes:**
 
-    - Returns `RESULTS.invalid_input` when the fit state is malformed.
     - Returns `RESULTS.nonfinite_objective` when mix-SQP fails.
     """
-    if not isinstance(state, FitState):
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": "fit_baseline expects a FitState"},
-        )
-
-    invalid_params = _validate_params(state.initial_params, name="initial_params")
-    if invalid_params is not None:
-        return invalid_params
-
-    validated_L = _validate_likelihood_matrix(state.likelihood_matrix)
-    if not validated_L.ok:
-        return validated_L
-    L = validated_L.value
-
-    if L.shape[1] != state.initial_params.pi.shape[0]:
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": "likelihood matrix columns must align with initial_params"},
-        )
-
+    L = state.likelihood_matrix
     prior_arr = np.ones(L.shape[1], dtype=float) if prior is None else np.asarray(prior, dtype=float)
     L_aug, w_aug = _augment_with_prior(L, prior_arr)
     try:
@@ -319,6 +253,8 @@ def fit_baseline(
             verbose=verbose,
         )
     except Exception as exc:
+        # mix-SQP can raise on genuinely non-finite iterates (e.g. divergent
+        # line search); surface as a recoverable-looking numerics failure.
         return Solution(
             value=None,
             result=RESULTS.nonfinite_objective,
@@ -363,26 +299,10 @@ def fit_refit_step(
 
     **Failure Modes:**
 
-    - Returns `RESULTS.invalid_input` when `L_sub` or `prev_params` is malformed.
     - Returns `RESULTS.empty_subset` when no observations are selected.
     - Returns `RESULTS.nonfinite_objective` when ordered mix-SQP fails.
     """
-    invalid_params = _validate_params(prev_params, name="prev_params")
-    if invalid_params is not None:
-        return invalid_params
-
-    validated_likelihood = _validate_likelihood_matrix(L_sub, name="L_sub")
-    if not validated_likelihood.ok:
-        return validated_likelihood
-    L_sub_arr = validated_likelihood.value
-
-    if L_sub_arr.shape[1] != prev_params.pi.shape[0]:
-        return Solution(
-            value=None,
-            result=RESULTS.invalid_input,
-            stats={"reason": "L_sub columns must align with prev_params"},
-        )
-
+    L_sub_arr = np.asarray(L_sub, dtype=float)
     if L_sub_arr.shape[0] == 0:
         return Solution(
             value=None,

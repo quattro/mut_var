@@ -332,8 +332,34 @@ def _init_weights(x0: np.ndarray | None, m: int) -> np.ndarray:
 
 
 def _normalise(x: np.ndarray) -> np.ndarray:
+    # mix-SQP works in a nonneg (not simplex) reformulation; the sum(x) penalty
+    # drives the iterate close to the simplex, and this projection pins it.
     s = x.sum()
     return x / s if s > 0 else np.ones_like(x) / len(x)
+
+
+def _prepare_mixsqp_inputs(
+    L: np.ndarray,
+    w: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    # Row-scaling: dividing each row of L by its max does not change the
+    # optimal pi (the scaling cancels in the log-likelihood ratio) but keeps
+    # the individual likelihoods in a range where BLAS-level arithmetic stays
+    # well-conditioned.
+    row_max = L.max(axis=1, keepdims=True)
+    row_max = np.maximum(row_max, np.finfo(float).tiny)
+    L_f = np.asfortranarray(L / row_max)
+
+    if w is None:
+        w_arr = np.ones(L.shape[0], dtype=float)
+    else:
+        w_arr = np.ascontiguousarray(w, dtype=float)
+        if w_arr.shape != (L.shape[0],):
+            raise ValueError(f"w must have shape ({L.shape[0]},), got {w_arr.shape}")
+    w_sum = float(w_arr.sum())
+    if w_sum <= 0.0:
+        raise ValueError("sum(w) must be positive")
+    return L_f, w_arr, w_sum
 
 
 def mix_sqp(
@@ -348,17 +374,18 @@ def mix_sqp(
 ) -> tuple[np.ndarray, dict[str, Any]]:
     r"""Maximum-likelihood estimation of mixture proportions via mix-SQP.
 
-    Maximises the log-likelihood ``(1/n) sum_j log(L x)_j`` subject to
-    ``x >= 0, sum(x) = 1`` using the mix-SQP algorithm (Kim et al. 2020).
-    The sum-to-one constraint is handled implicitly: the nonneg-reformulated
-    objective adds a ``sum(x)`` penalty that drives the simplex normalisation
-    at convergence.
+    Maximises the weighted log-likelihood ``(1/W) sum_j w_j log((Lx)_j)``
+    subject to ``x >= 0, sum(x) = 1`` using the mix-SQP algorithm (Kim et
+    al. 2020), where ``W = sum(w)``. The sum-to-one constraint is handled
+    implicitly: the nonneg-reformulated objective adds a ``sum(x)`` penalty
+    that drives the simplex normalisation at convergence.
 
     **Arguments:**
 
     - `L`: ``(n, m)`` likelihood matrix; ``L[j, k]`` is the likelihood of
       observation ``j`` under component ``k``.
     - `x0`: Optional warm-start weights (normalised to sum to 1).
+    - `w`: Optional ``(n,)`` per-row nonneg weights; defaults to ones.
     - `max_iter`: Maximum outer SQP iterations.
     - `atol`: Absolute convergence tolerance for accepted outer steps.
     - `rtol`: Relative convergence tolerance for accepted outer steps.
@@ -373,23 +400,7 @@ def mix_sqp(
     """
     L = np.asarray(L, dtype=float)
     _n, m = L.shape
-
-    # Scale each row by its maximum before passing to the Cython kernel. This
-    # prevents underflow when likelihoods are very small without changing the
-    # optimal pi (the row scaling cancels in the log-likelihood ratio).
-    row_max = L.max(axis=1, keepdims=True)
-    row_max = np.maximum(row_max, np.finfo(float).tiny)
-    L_f = np.asfortranarray(L / row_max)
-
-    if w is None:
-        w_arr = np.ones(L.shape[0], dtype=float)
-    else:
-        w_arr = np.ascontiguousarray(w, dtype=float)
-        if w_arr.shape != (L.shape[0],):
-            raise ValueError(f"w must have shape ({L.shape[0]},), got {w_arr.shape}")
-    w_sum = float(w_arr.sum())
-    if w_sum <= 0.0:
-        raise ValueError("sum(w) must be positive")
+    L_f, w_arr, w_sum = _prepare_mixsqp_inputs(L, w)
 
     x = _init_weights(x0, m)
 
@@ -427,6 +438,9 @@ def mix_sqp(
         if log_fn is not None:
             log_fn(step=iteration + 1, obj=float(f_new))
 
+        # Two-pronged convergence: the iterate stops moving AND the objective
+        # stops improving. Either alone is insufficient (a degenerate step can
+        # be small even when the objective is still descending, and vice versa).
         step_norm = np.max(np.abs(x_new - x))
         f_diff = abs(f_new - f)
         step_converged = step_norm <= (atol + rtol)
@@ -469,6 +483,7 @@ def mix_sqp_ordered(
     - `baseline`: ``(m,)`` baseline proportions used to initialise ``x`` when
       no ``x0`` is provided.
     - `x0`: Optional warm-start weights.
+    - `w`: Optional ``(n,)`` per-row nonneg weights; defaults to ones.
     - `max_iter`: Maximum outer SQP iterations.
     - `atol`: Absolute convergence tolerance for accepted outer steps.
     - `rtol`: Relative convergence tolerance for accepted outer steps.
@@ -483,21 +498,7 @@ def mix_sqp_ordered(
     L = np.asarray(L, dtype=float)
     A = np.asarray(A, dtype=float)
     _n, m = L.shape
-
-    # Same row-scaling as mix_sqp to avoid underflow.
-    row_max = L.max(axis=1, keepdims=True)
-    row_max = np.maximum(row_max, np.finfo(float).tiny)
-    L_f = np.asfortranarray(L / row_max)
-
-    if w is None:
-        w_arr = np.ones(L.shape[0], dtype=float)
-    else:
-        w_arr = np.ascontiguousarray(w, dtype=float)
-        if w_arr.shape != (L.shape[0],):
-            raise ValueError(f"w must have shape ({L.shape[0]},), got {w_arr.shape}")
-    w_sum = float(w_arr.sum())
-    if w_sum <= 0.0:
-        raise ValueError("sum(w) must be positive")
+    L_f, w_arr, w_sum = _prepare_mixsqp_inputs(L, w)
 
     # Default initialisation from the baseline proportions so the starting
     # point is consistent with the ordering constraints.
