@@ -20,7 +20,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Refit optimization consumes precomputed likelihood matrices and uses mix-SQP-ordered with bidiagonal ordering constraint `A π ≤ 0`.
   - Optional `verbose` callable `(step, obj) -> None` emits per-step diagnostics.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.
-  - Curve fitting supports `sigmoid` and `isotonic` methods through a method-neutral fit result.
+  - Curve fitting supports `sigmoid`, `isotonic`, and `mono_spline` methods through a method-neutral fit result.
   - `simulate_mixture_data` validates simulation domains before random draws and returns `SimulationArrays` payloads on `RESULTS.successful`.
 - **Expects**:
   - Array-like inputs only (NumPy-compatible), not dataframe objects.
@@ -42,7 +42,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `mixsqp.py` co-locates the outer SQP loop, active-set inner QP solvers, and recoverable-status utilities for the mix-SQP stack.
 - Ordering constraint `A π ≤ 0` (hard constraint) replaces the soft penalty term in refit.
 - `simulate_mixture_data` uses `numpy.random.default_rng(config.seed)` for reproducibility.
-- Sigmoid curve fitting uses `scipy.optimize.least_squares(method='lm')`; isotonic fitting uses weighted pooled-adjacent-violators regression on sorted unique MAF support.
+- Sigmoid curve fitting uses `scipy.optimize.least_squares(method='lm')`; isotonic fitting uses weighted pooled-adjacent-violators regression on sorted unique MAF support; `mono_spline` fitting runs the same isotonic regression on the unique support and then interpolates the resulting monotone knot levels with `scipy.interpolate.PchipInterpolator` in log-MAF space.
 - JAX, Equinox, and Optimistix have been fully removed from the numerics stack.
 
 ## Invariants
@@ -56,7 +56,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `src/mut_var/numerics/mixture_fit.py` - fit-state preparation, baseline fitting, and likelihood-driven refit kernels.
 - `src/mut_var/numerics/mixsqp.py` - mix-SQP outer loop, active-set QP solvers, ordering matrix construction, and recoverable-status helpers.
 - `src/mut_var/numerics/_core.pyx` - Cython BLAS hot path.
-- `src/mut_var/numerics/curve_fit.py` - method-neutral curve fitting/evaluation kernels for sigmoid and isotonic fits.
+- `src/mut_var/numerics/curve_fit.py` - method-neutral curve fitting/evaluation kernels for sigmoid, isotonic, and mono_spline fits.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.
 
 ## Gotchas

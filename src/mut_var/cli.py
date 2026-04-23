@@ -151,7 +151,7 @@ def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     curve_group.add_argument(
         "--method",
         type=str,
-        choices=("sigmoid", "isotonic"),
+        choices=("sigmoid", "isotonic", "mono_spline"),
         default="sigmoid",
         help="Curve fitting method.",
     )

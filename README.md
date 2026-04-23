@@ -55,7 +55,7 @@ Canonical simulation pipeline:
 
 Canonical curve pipeline:
 
-- CLI: `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic] [--fit-only]`
+- CLI: `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline] [--fit-only]`
 - API: `mut_var.run_curve_pipeline(input_path, generate_plots=..., method=...)` -> method-neutral parameter `polars.DataFrame`
 
 Python inference example:
@@ -236,7 +236,7 @@ Curve fitting is split into:
 - Pure numerics: `mut_var.numerics.fit_curve_model` + `mut_var.numerics.evaluate_curve_fit`
 - Optional plotting adapter: `mut_var.plotting.curve_plots`
 - Orchestration pipeline: `mut_var.run_curve_pipeline`
-- Method selection at the workflow boundary: `sigmoid` (default) or `isotonic`
+- Method selection at the workflow boundary: `sigmoid` (default), `isotonic`, or `mono_spline`
 
 Behavior guarantees:
 

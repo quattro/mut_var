@@ -33,9 +33,10 @@ def _parameter_rows(var0: float, fit: CurveFitResult) -> list[dict[str, str | fl
             for name, value in zip(names, values, strict=True)
         ]
 
-    # Isotonic fits are emitted as a direction flag plus paired (x_i, y_i)
-    # rows on the unique support; the downstream consumer reassembles the
-    # step function from this representation.
+    # Isotonic and mono_spline fits share the same tabular shape: a direction
+    # flag plus paired (x_i, y_i) rows on the unique MAF support. The downstream
+    # consumer reassembles the step function (isotonic) or the PCHIP-interpolated
+    # curve (mono_spline) from this representation.
     rows: list[dict[str, str | float]] = [
         {
             "var0": var0,

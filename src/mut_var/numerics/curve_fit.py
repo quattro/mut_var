@@ -6,6 +6,7 @@ from typing import Literal, NamedTuple
 import numpy as np
 import scipy.optimize as sco
 
+from scipy.interpolate import PchipInterpolator
 from scipy.optimize import isotonic_regression
 from scipy.special import expit, logit
 
@@ -20,7 +21,7 @@ _POOR_FIT_MAX_ABS_THRESHOLD = 1.5e-1
 _POOR_FIT_NONMONOTONE_SIGN_CHANGES = 2
 _POOR_FIT_NONMONOTONE_MAX_ABS_THRESHOLD = 2e-2
 
-CurveMethod = Literal["sigmoid", "isotonic"]
+CurveMethod = Literal["sigmoid", "isotonic", "mono_spline"]
 
 
 class CurveFitResult(NamedTuple):
@@ -30,14 +31,17 @@ class CurveFitResult(NamedTuple):
     ``(left, right, rate, midpoint)`` and ``support``/``increasing`` are unused.
     For ``method="isotonic"``, ``payload`` holds the fitted step-function levels
     on ``support`` (the unique MAF grid), and ``increasing`` records the
-    monotonic direction.
+    monotonic direction. For ``method="mono_spline"``, ``payload`` holds the
+    monotone knot levels on ``support`` (the unique MAF grid), and ``increasing``
+    records the direction; evaluation interpolates these with a PCHIP spline in
+    log-MAF space.
 
     **Arguments:**
 
     - `method`: Curve-fitting method name.
     - `payload`: Method-specific fitted state.
-    - `support`: Unique MAF support for isotonic fits; ``None`` for sigmoid.
-    - `increasing`: Isotonic monotonic direction flag; ``None`` for sigmoid.
+    - `support`: Unique MAF support for isotonic/mono_spline fits; ``None`` for sigmoid.
+    - `increasing`: Monotonic direction flag for isotonic/mono_spline; ``None`` for sigmoid.
 
     """
 
@@ -163,6 +167,27 @@ def _evaluate_isotonic_curve(fit: CurveFitResult, maf: np.ndarray) -> np.ndarray
     return fit.payload[indices]
 
 
+def _evaluate_mono_spline_curve(fit: CurveFitResult, maf: np.ndarray) -> np.ndarray:
+    # The fit is a monotone PCHIP through the isotonic-regressed levels in
+    # log-MAF space. Queries outside the fitted support are clamped to the
+    # nearest edge level rather than extrapolated (PCHIP extrapolation is
+    # cubic and not guaranteed to stay monotone).
+    support = fit.support
+    assert support is not None  # enforced by _fit_mono_spline_curve_model
+    levels = fit.payload
+    if support.size < 2:
+        return np.full(maf.shape, float(levels[0]))
+    log_support = np.log(np.clip(support, _MAF_EPS, None))
+    log_maf = np.log(np.clip(maf, _MAF_EPS, None))
+    pchip = PchipInterpolator(log_support, levels, extrapolate=False)
+    evaluated = pchip(log_maf)
+    return np.where(
+        log_maf <= log_support[0],
+        levels[0],
+        np.where(log_maf >= log_support[-1], levels[-1], evaluated),
+    )
+
+
 def evaluate_curve_fit(fit: CurveFitResult, maf: np.ndarray) -> np.ndarray:
     r"""Evaluate a fitted curve model on MAF inputs.
 
@@ -177,6 +202,8 @@ def evaluate_curve_fit(fit: CurveFitResult, maf: np.ndarray) -> np.ndarray:
     """
     if fit.method == "sigmoid":
         return _evaluate_sigmoid_curve(maf, fit.payload)
+    if fit.method == "mono_spline":
+        return _evaluate_mono_spline_curve(fit, maf)
     return _evaluate_isotonic_curve(fit, maf)
 
 
@@ -288,6 +315,79 @@ def _fit_isotonic_curve_model(maf: np.ndarray, value: np.ndarray) -> Solution:
     )
 
 
+def _fit_mono_spline_curve_model(maf: np.ndarray, value: np.ndarray) -> Solution:
+    n_obs = int(maf.size)
+    order = np.argsort(maf, kind="mergesort")
+    maf_sorted = maf[order]
+    value_sorted = value[order]
+
+    # Aggregate duplicate MAFs the same way isotonic does so the spline knots
+    # sit on a strictly increasing support with well-defined target values.
+    unique_maf, inverse = np.unique(maf_sorted, return_inverse=True)
+    counts = np.bincount(inverse).astype(float)
+    summed_values = np.bincount(inverse, weights=value_sorted)
+    averaged_values = summed_values / counts
+
+    log_unique = np.log(np.clip(unique_maf, _MAF_EPS, None))
+    if unique_maf.size == 1:
+        increasing = True
+    else:
+        # Direction is picked from the log-MAF vs value correlation since the
+        # spline itself is fit in log-MAF space.
+        x_centered = log_unique - np.mean(log_unique)
+        y_centered = averaged_values - np.mean(averaged_values)
+        denom = np.sqrt(np.sum(x_centered**2) * np.sum(y_centered**2))
+        if denom > 0.0:
+            corr = np.sum(x_centered * y_centered) / denom
+            increasing = bool(corr >= 0.0)
+        else:
+            increasing = bool(averaged_values[-1] >= averaged_values[0])
+
+    # Enforce monotonicity on the knot levels via weighted isotonic regression.
+    # PCHIP then gives a smooth monotone cubic interpolant through those levels.
+    fitted_unique = isotonic_regression(averaged_values, weights=counts, increasing=increasing).x
+
+    if unique_maf.size < 2:
+        prediction_sorted = fitted_unique[inverse]
+    else:
+        log_maf_sorted = np.log(np.clip(maf_sorted, _MAF_EPS, None))
+        pchip = PchipInterpolator(log_unique, fitted_unique, extrapolate=False)
+        evaluated = pchip(log_maf_sorted)
+        prediction_sorted = np.where(
+            log_maf_sorted <= log_unique[0],
+            fitted_unique[0],
+            np.where(log_maf_sorted >= log_unique[-1], fitted_unique[-1], evaluated),
+        )
+
+    # Return prediction to the caller's original sample order before scoring.
+    prediction = np.empty_like(prediction_sorted)
+    prediction[order] = prediction_sorted
+    if not np.isfinite(prediction).all():
+        return Solution(
+            value=None,
+            result=RESULTS.nonfinite_objective,
+            stats={"reason": "mono_spline fitted values are non-finite"},
+        )
+
+    diagnostics = _fit_diagnostics(value, prediction)
+    return Solution(
+        value=CurveFitResult(
+            method="mono_spline",
+            payload=fitted_unique,
+            support=unique_maf,
+            increasing=increasing,
+        ),
+        result=RESULTS.successful,
+        stats={
+            "n_obs": n_obs,
+            "n_unique": int(unique_maf.size),
+            "epoch_count": int(unique_maf.size),
+            "converged": True,
+            **diagnostics,
+        },
+    )
+
+
 def fit_curve_model(maf: np.ndarray, value: np.ndarray, *, method: CurveMethod = "sigmoid") -> Solution:
     r"""Fit a method-neutral curve model.
 
@@ -295,7 +395,10 @@ def fit_curve_model(maf: np.ndarray, value: np.ndarray, *, method: CurveMethod =
 
     - `maf`: 1D MAF values.
     - `value`: 1D target values aligned with `maf`.
-    - `method`: Curve-fitting method (`sigmoid` or `isotonic`).
+    - `method`: Curve-fitting method (`sigmoid`, `isotonic`, or `mono_spline`).
+      The `mono_spline` method fits a monotone cubic (PCHIP) spline through
+      isotonic-regressed knot levels in log-MAF space; the caller passes raw
+      MAF values and the log-transform is applied internally.
 
     **Returns:**
 
@@ -308,6 +411,8 @@ def fit_curve_model(maf: np.ndarray, value: np.ndarray, *, method: CurveMethod =
     """
     if method == "sigmoid":
         return _fit_sigmoid_curve_model(maf, value)
+    if method == "mono_spline":
+        return _fit_mono_spline_curve_model(maf, value)
     return _fit_isotonic_curve_model(maf, value)
 
 

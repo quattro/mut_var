@@ -474,3 +474,34 @@ def test_curve_pipeline_supports_isotonic_method(tmp_path):
     assert fit_df.height > 0
     assert set(fit_df["method"].to_list()) == {"isotonic"}
     assert bool(np.isfinite(_fit_matrix(fit_df)).all())
+
+
+def test_fit_curve_model_supports_mono_spline():
+    maf = np.asarray([0.001, 0.002, 0.005, 0.01, 0.02])
+    value = np.asarray([0.2, 0.19, 0.18, 0.17, 0.16])
+
+    solution = fit_curve_model(maf, value, method="mono_spline")
+
+    assert solution.result == RESULTS.successful
+    assert solution.value is not None
+    assert solution.value.method == "mono_spline"
+    fitted = evaluate_curve_fit(solution.value, maf)
+    assert fitted.shape == maf.shape
+    assert bool(np.all(np.isfinite(fitted)))
+    # Evaluating on a denser MAF space should also stay finite and monotone.
+    dense = np.geomspace(5e-4, 5e-2, 50)
+    dense_fit = evaluate_curve_fit(solution.value, dense)
+    assert bool(np.all(np.isfinite(dense_fit)))
+    diffs = np.diff(dense_fit)
+    assert bool(np.all(diffs <= 1e-12))  # monotone nonincreasing for this data
+
+
+def test_curve_pipeline_supports_mono_spline_method(tmp_path):
+    data_path = _copy_fixture(tmp_path)
+
+    fit_df = run_curve_pipeline(str(data_path), generate_plots=False, method="mono_spline")
+
+    assert fit_df.columns == ["var0", "method", "param_name", "param_value"]
+    assert fit_df.height > 0
+    assert set(fit_df["method"].to_list()) == {"mono_spline"}
+    assert bool(np.isfinite(_fit_matrix(fit_df)).all())

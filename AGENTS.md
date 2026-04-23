@@ -19,7 +19,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Inference numerics prepare a shared likelihood matrix once, then reuse that state across baseline and refit.
   - Simulation pipeline APIs return dataframe artifacts (`truth`, `observed`, `metadata`) and keep file writes in CLI/orchestration shells.
   - Baseline/refit numerics use mix-SQP with full-batch objective updates only.
-  - Curve numerics support both `sigmoid` and `isotonic` methods, and the curve pipeline returns method-neutral parameter rows.
+  - Curve numerics support `sigmoid`, `isotonic`, and `mono_spline` methods, and the curve pipeline returns method-neutral parameter rows.
   - Numerics hot path is Cython-compiled (`_core.pyx`) with BLAS acceleration.
   - Orchestration/input errors use built-in exception types (`ValueError`, `FileNotFoundError`, `RuntimeError`) instead of custom error hierarchies.
   - High-level workflow paths emit step-level progress logs (load/validate/run/prepare/write) through logging, not ad-hoc prints.
@@ -62,7 +62,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 ## Commands
 - `pip install -e .`
 - `mutvar infer <sumstats.tsv> [options]`
-- `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic] [--fit-only]`
+- `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline] [--fit-only]`
 - `mutvar simulate --output-prefix <prefix> [options]`
 - `ruff check src/mut_var tests`
 - `mypy src/mut_var tests`
