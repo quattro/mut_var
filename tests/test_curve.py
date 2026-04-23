@@ -476,6 +476,22 @@ def test_curve_pipeline_supports_isotonic_method(tmp_path):
     assert bool(np.isfinite(_fit_matrix(fit_df)).all())
 
 
+def test_fit_curve_isotonic_diagnostics_are_sample_order_invariant():
+    # Regression: diagnostics must pair predictions with their original samples
+    # regardless of input ordering.
+    maf_sorted = np.asarray([0.001, 0.002, 0.005, 0.01])
+    value_sorted = np.asarray([0.21, 0.18, 0.19, 0.15])
+    perm = np.asarray([2, 0, 3, 1])
+
+    sorted_solution = fit_curve_model(maf_sorted, value_sorted, method="isotonic")
+    shuffled_solution = fit_curve_model(maf_sorted[perm], value_sorted[perm], method="isotonic")
+
+    assert sorted_solution.stats is not None
+    assert shuffled_solution.stats is not None
+    assert sorted_solution.stats["rmse"] == shuffled_solution.stats["rmse"]
+    assert sorted_solution.stats["max_abs_error"] == shuffled_solution.stats["max_abs_error"]
+
+
 def test_fit_curve_model_supports_mono_spline():
     maf = np.asarray([0.001, 0.002, 0.005, 0.01, 0.02])
     value = np.asarray([0.2, 0.19, 0.18, 0.17, 0.16])

@@ -285,10 +285,13 @@ def _fit_isotonic_curve_model(maf: np.ndarray, value: np.ndarray) -> Solution:
         else:
             increasing = bool(averaged_values[-1] >= averaged_values[0])
 
-    # SciPy returns fitted levels on the unique support grid; `inverse`
-    # expands them back to the observation-aligned prediction vector.
+    # SciPy returns fitted levels on the unique support grid; `inverse` expands
+    # them along the sorted observation axis, and we then map back to the
+    # caller's original sample order so diagnostics pair like-with-like.
     fitted_unique = isotonic_regression(averaged_values, weights=counts, increasing=increasing).x
-    prediction = fitted_unique[inverse]
+    prediction_sorted = fitted_unique[inverse]
+    prediction = np.empty_like(prediction_sorted)
+    prediction[order] = prediction_sorted
     if not np.isfinite(prediction).all():
         return Solution(
             value=None,
