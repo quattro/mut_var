@@ -177,7 +177,16 @@ def _evaluate_mono_spline_curve(fit: CurveFitResult, maf: np.ndarray) -> np.ndar
     levels = fit.payload
     if support.size < 2:
         return np.full(maf.shape, float(levels[0]))
+    # Round-tripping through exp() at fit time and log() here can collapse
+    # adjacent knots that were distinct in log space at fit time; PCHIP
+    # requires strictly increasing x, so drop any collapsed pairs and their
+    # (redundant) levels before building the interpolator.
     log_support = np.log(np.clip(support, _MAF_EPS, None))
+    keep = np.concatenate(([True], np.diff(log_support) > 0.0))
+    log_support = log_support[keep]
+    levels = levels[keep]
+    if log_support.size < 2:
+        return np.full(maf.shape, float(levels[0]))
     log_maf = np.log(np.clip(maf, _MAF_EPS, None))
     pchip = PchipInterpolator(log_support, levels, extrapolate=False)
     evaluated = pchip(log_maf)
@@ -324,20 +333,23 @@ def _fit_mono_spline_curve_model(maf: np.ndarray, value: np.ndarray) -> Solution
     maf_sorted = maf[order]
     value_sorted = value[order]
 
-    # Aggregate duplicate MAFs the same way isotonic does so the spline knots
-    # sit on a strictly increasing support with well-defined target values.
-    unique_maf, inverse = np.unique(maf_sorted, return_inverse=True)
+    # Aggregate in log-MAF space (not raw MAF) so the spline knot support is
+    # strictly increasing in log space — PchipInterpolator requires that, and
+    # bit-different MAFs that land sub-ULP apart in log space would otherwise
+    # pass as distinct MAFs but collapse to identical log-MAFs and crash PCHIP.
+    log_maf_sorted = np.log(np.clip(maf_sorted, _MAF_EPS, None))
+    unique_log_maf, inverse = np.unique(log_maf_sorted, return_inverse=True)
     counts = np.bincount(inverse).astype(float)
     summed_values = np.bincount(inverse, weights=value_sorted)
     averaged_values = summed_values / counts
+    unique_maf = np.exp(unique_log_maf)
 
-    log_unique = np.log(np.clip(unique_maf, _MAF_EPS, None))
-    if unique_maf.size == 1:
+    if unique_log_maf.size == 1:
         increasing = True
     else:
         # Direction is picked from the log-MAF vs value correlation since the
         # spline itself is fit in log-MAF space.
-        x_centered = log_unique - np.mean(log_unique)
+        x_centered = unique_log_maf - np.mean(unique_log_maf)
         y_centered = averaged_values - np.mean(averaged_values)
         denom = np.sqrt(np.sum(x_centered**2) * np.sum(y_centered**2))
         if denom > 0.0:
@@ -350,16 +362,15 @@ def _fit_mono_spline_curve_model(maf: np.ndarray, value: np.ndarray) -> Solution
     # PCHIP then gives a smooth monotone cubic interpolant through those levels.
     fitted_unique = isotonic_regression(averaged_values, weights=counts, increasing=increasing).x
 
-    if unique_maf.size < 2:
+    if unique_log_maf.size < 2:
         prediction_sorted = fitted_unique[inverse]
     else:
-        log_maf_sorted = np.log(np.clip(maf_sorted, _MAF_EPS, None))
-        pchip = PchipInterpolator(log_unique, fitted_unique, extrapolate=False)
+        pchip = PchipInterpolator(unique_log_maf, fitted_unique, extrapolate=False)
         evaluated = pchip(log_maf_sorted)
         prediction_sorted = np.where(
-            log_maf_sorted <= log_unique[0],
+            log_maf_sorted <= unique_log_maf[0],
             fitted_unique[0],
-            np.where(log_maf_sorted >= log_unique[-1], fitted_unique[-1], evaluated),
+            np.where(log_maf_sorted >= unique_log_maf[-1], fitted_unique[-1], evaluated),
         )
 
     # Return prediction to the caller's original sample order before scoring.

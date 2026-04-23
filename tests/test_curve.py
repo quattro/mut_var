@@ -512,6 +512,25 @@ def test_fit_curve_model_supports_mono_spline():
     assert bool(np.all(diffs <= 1e-12))  # monotone nonincreasing for this data
 
 
+def test_fit_curve_mono_spline_handles_log_collapsing_near_duplicates():
+    # Regression: inference auto-derive places the baseline point and grid[0]
+    # at essentially the same MAF; the two floats differ by ~1 ULP in MAF but
+    # collapse to identical doubles under log(). PCHIP requires strictly
+    # increasing x in log space, so the fit must aggregate in log space.
+    near_dup_low = 1.2704e-6
+    near_dup_high = 1.2704000000000006e-6
+    maf = np.asarray([near_dup_low, near_dup_high, 1.8462e-6, 1e-4, 1e-3, 1e-2])
+    value = np.asarray([0.20776, 0.20778, 0.20783, 0.20820, 0.20977, 0.21253])
+
+    solution = fit_curve_model(maf, value, method="mono_spline")
+
+    assert solution.result == RESULTS.successful
+    assert solution.value is not None
+    fitted = evaluate_curve_fit(solution.value, maf)
+    assert fitted.shape == maf.shape
+    assert bool(np.all(np.isfinite(fitted)))
+
+
 def test_curve_pipeline_supports_mono_spline_method(tmp_path):
     data_path = _copy_fixture(tmp_path)
 
