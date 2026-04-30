@@ -17,6 +17,7 @@ class InferenceConfig(NamedTuple):
     atol: float = 1e-3
     rtol: float = 1e-3
     filter_threshold: float = 1e-8
+    constrain_spike: bool = False
 
 
 class SimulationConfig(NamedTuple):

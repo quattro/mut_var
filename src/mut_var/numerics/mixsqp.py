@@ -121,7 +121,7 @@ def solve_qp_ordered(
 
     - `H`: ``(m, m)`` symmetric positive-semidefinite Hessian.
     - `a`: ``(m,)`` linear term.
-    - `A`: ``(p, m)`` ordering constraint matrix; ``Ay <= 0`` at solution.
+    - `A`: ``(p, m)`` linear constraint matrix; ``Ay <= 0`` at solution.
     - `x0`: ``(m,)`` feasible starting point (``x0 >= 0``, ``A x0 <= 0``).
     - `max_iter`: Maximum active-set iterations.
     - `tol`: KKT tolerance.
@@ -133,18 +133,16 @@ def solve_qp_ordered(
     m = H.shape[0]
     p = A.shape[0]
 
-    # With no ordering constraints this reduces to the simpler bound-only problem.
+    # With no linear constraints this reduces to the simpler bound-only problem.
     if p == 0:
         return solve_qp_nonneg(H, a, x0, max_iter, tol)
 
     # Two active sets for the two constraint families:
     #   W_bound  — bound constraints y_i >= 0 that are currently active (y_i = 0).
-    #   W_ord    — ordering constraints (Ay)_j <= 0 that are currently active (equality).
-    # Starting with all ordering constraints active is conservative but avoids
-    # evaluating feasibility of a warm-start point.
+    #   W_ord    — linear constraints (Ay)_j <= 0 that are currently active.
     y = np.maximum(x0.astype(float, copy=True), 0.0)
-    W_bound: set[int] = set()
-    W_ord: set[int] = set(range(p))
+    W_bound: set[int] = set(int(i) for i in np.where(y <= tol)[0])
+    W_ord: set[int] = set(int(i) for i in np.where(A @ y >= -tol)[0])
 
     for _ in range(max_iter):
         W_ord_list = sorted(W_ord)
@@ -166,14 +164,14 @@ def solve_qp_ordered(
 
         if nO > 0:
             # Build and solve the KKT system for the current active set.
-            # Restricting to free variables and active ordering constraints:
+            # Restricting to free variables and active linear constraints:
             #
             #   [ H_FF   A_WF' ] [ h_F ]   [ -g_F ]
             #   [ A_WF   0     ] [ nu  ] = [  0   ]
             #
-            # where nu are the Lagrange multipliers for the active ordering
+            # where nu are the Lagrange multipliers for the active linear
             # constraints. The lower block enforces A_WF h_F = 0 (the active
-            # ordering constraints don't change within this step).
+            # linear constraints don't change within this step).
             A_WF = A[np.ix_(W_ord_list, F_arr)]
             H_FF = H[np.ix_(F_arr, F_arr)]
 
@@ -187,9 +185,9 @@ def solve_qp_ordered(
 
             sol, *_ = np.linalg.lstsq(KKT, rhs, rcond=None)
             h_F = sol[:nF]
-            nu = sol[nF:]  # multipliers for active ordering constraints
+            nu = sol[nF:]  # multipliers for active linear constraints
         else:
-            # No active ordering constraints: pure Newton step in free subspace.
+            # No active linear constraints: pure Newton step in free subspace.
             H_FF = H[np.ix_(F_arr, F_arr)]
             h_F, *_ = np.linalg.lstsq(H_FF, -g[F_arr], rcond=None)
             nu = np.zeros(0)
@@ -201,7 +199,7 @@ def solve_qp_ordered(
         if np.max(np.abs(h)) < tol:
             # Step is negligible: check KKT conditions for both constraint families.
             # The multiplier for bound constraint i is lam[i] = (g + A_W' nu)[i].
-            # The multiplier for ordering constraint j (active) is nu[j].
+            # The multiplier for linear constraint j (active) is nu[j].
             # KKT requires lam[i] >= 0 for all i in W_bound and nu[j] >= 0 for
             # all j in W_ord. A negative multiplier identifies a constraint that
             # is holding the optimum back and should be dropped from the active set.
@@ -241,10 +239,10 @@ def solve_qp_ordered(
                 if ratio < alpha:
                     alpha = ratio
                     blocking_b = i
-                    blocking_o = None  # bound blocks before any ordering constraint
+                    blocking_o = None  # bound blocks before any linear constraint
 
-        # Ordering constraints: constraint j becomes active when (Ay + alpha*Ah)_j = 0.
-        # Only check inactive ordering constraints; active ones are already at equality.
+        # Linear constraints: constraint j becomes active when (Ay + alpha*Ah)_j = 0.
+        # Only check inactive linear constraints; active ones are already at equality.
         Ah = A @ h
         Ay = A @ y
         for j in range(p):
@@ -253,7 +251,7 @@ def solve_qp_ordered(
                 if ratio < alpha:
                     alpha = ratio
                     blocking_o = j
-                    blocking_b = None  # ordering constraint blocks before any bound
+                    blocking_b = None  # linear constraint blocks before any bound
 
         y = y + alpha * h
         y = np.maximum(y, 0.0)  # numerical clean-up for bound constraints
@@ -261,40 +259,64 @@ def solve_qp_ordered(
         # Add whichever constraint became active to its respective active set.
         if blocking_b is not None:
             W_bound.add(blocking_b)
+        W_bound.update(int(i) for i in np.where(y <= tol)[0])
         if blocking_o is not None:
             W_ord.add(blocking_o)
 
     return y
 
 
-def build_ordering_matrix(baseline: np.ndarray) -> np.ndarray:
-    r"""Build the bidiagonal ordering-constraint matrix from baseline proportions.
+def build_constraints_matrix(baseline: np.ndarray, *, constrain_spike: bool = False) -> np.ndarray:
+    r"""Build refit constraints from baseline proportions.
 
     **Arguments:**
 
-    - `baseline`: ``(m,)`` baseline mixture proportions (need not sum to 1).
+    - `baseline`: ``(m,)`` baseline mixture proportions.
+    - `constrain_spike`: If true, include constraints involving the null/spike component.
 
     **Returns:**
 
-    - ``A``: ``(m-1, m)`` constraint matrix; ``A pi <= 0`` encodes the ordering.
+    - ``A``: Constraint matrix; ``A pi <= 0`` encodes adjacent-pair ordering.
+      When `constrain_spike` is true, it also encodes the null-weight cap and
+      adjacent ordering between the spike and first signal component.
 
-    The constraint ``A pi <= 0`` encodes, for each adjacent pair of components
-    ``i`` and ``i+1``:
+    When `constrain_spike` is true, row 0 encodes the null-weight cap:
 
-    $$-b_{i+1} \pi_i + b_i \pi_{i+1} \leq 0 \implies \frac{\pi_i}{b_i} \geq \frac{\pi_{i+1}}{b_{i+1}}$$
+    $$\pi_0 \leq b_0$$
 
-    where ``b`` is the baseline proportion vector. This preserves the relative
-    ordering of mixture weights from the baseline fit: a component that was
-    heavier in the baseline cannot become lighter in the refit relative to its
-    neighbour.
+    in the homogeneous form used by mix-SQP:
+
+    $$(1-b_0)\pi_0 - b_0 \sum_{j>0}\pi_j \leq 0.$$
+
+    The remaining rows encode, for each adjacent pair of constrained components ``i`` and
+    ``i+1``:
+
+    $$b_{i+1} \pi_i - b_i \pi_{i+1} \leq 0
+    \implies \frac{\pi_i}{b_i} \leq \frac{\pi_{i+1}}{b_{i+1}}$$
+
+    where ``b`` is the normalised baseline proportion vector. This enforces
+    nondecreasing enrichment ``\pi_i / b_i`` across constrained component
+    indices, with spike constraints included only when requested.
     """
     b = np.asarray(baseline, dtype=float)
     m = len(b)
-    A = np.zeros((m - 1, m))
-    for i in range(m - 1):
-        # Row i constrains the cross-ratio of adjacent components i and i+1.
-        A[i, i] = -b[i + 1]
-        A[i, i + 1] = b[i]
+    s = b.sum()
+    b = b / s if s > 0 else np.ones(m) / m
+
+    start_pair = 0 if constrain_spike else 1
+    n_pair_rows = max((m - 1) - start_pair, 0)
+    n_rows = n_pair_rows + (1 if constrain_spike else 0)
+    A = np.zeros((n_rows, m))
+    offset = 0
+    if constrain_spike:
+        b0 = b[0]
+        A[0, :] = -b0
+        A[0, 0] = 1.0 - b0
+        offset = 1
+    for row, i in enumerate(range(start_pair, m - 1), start=offset):
+        # Constrain the cross-ratio of adjacent components i and i+1.
+        A[row, i] = b[i + 1]
+        A[row, i + 1] = -b[i]
     return A
 
 
@@ -469,17 +491,18 @@ def mix_sqp_ordered(
     inner_max_iter: int = 200,
     verbose: bool | Callable[..., Any] = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    r"""mix-SQP with ordering constraints ``A pi <= 0``.
+    r"""mix-SQP with refit constraints ``A pi <= 0``.
 
     Identical to :func:`mix_sqp` except the inner QP is solved subject to the
     additional linear inequality ``A y <= 0``, which is used in the refit stage
-    to preserve the relative component ordering from the baseline fit. See
-    :func:`build_ordering_matrix` for how ``A`` is constructed.
+    to cap the null component and preserve the relative component ordering from
+    the previous fit. See :func:`build_constraints_matrix` for how ``A`` is
+    constructed.
 
     **Arguments:**
 
     - `L`: ``(n, m)`` likelihood matrix for the current MAF-threshold subset.
-    - `A`: ``(m-1, m)`` ordering-constraint matrix from :func:`build_ordering_matrix`.
+    - `A`: Constraint matrix from :func:`build_constraints_matrix`.
     - `baseline`: ``(m,)`` baseline proportions used to initialise ``x`` when
       no ``x0`` is provided.
     - `x0`: Optional warm-start weights.
@@ -501,7 +524,7 @@ def mix_sqp_ordered(
     L_f, w_arr, w_sum = _prepare_mixsqp_inputs(L, w)
 
     # Default initialisation from the baseline proportions so the starting
-    # point is consistent with the ordering constraints.
+    # point is consistent with the refit constraints.
     if x0 is None:
         b = np.asarray(baseline, dtype=float)
         s = b.sum()
@@ -524,7 +547,7 @@ def mix_sqp_ordered(
     for iteration in range(max_iter):
         compute_grad_hess(L_f, x, w_arr, w_sum, g, H, q, B)
 
-        # Local QP with both bound and ordering constraints:
+        # Local QP with both bound and refit constraints:
         #   min 1/2 y'Hy + y'a   s.t.   y >= 0,  Ay <= 0
         a = g - H @ x
         y_star = solve_qp_ordered(H, a, A, x.copy(), max_iter=inner_max_iter)
@@ -554,7 +577,7 @@ def mix_sqp_ordered(
 
 
 __all__ = [
-    "build_ordering_matrix",
+    "build_constraints_matrix",
     "is_recoverable_result",
     "merge_recoverable_results",
     "mix_sqp",

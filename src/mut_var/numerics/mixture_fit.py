@@ -9,7 +9,7 @@ import numpy as np
 from scipy.stats import norm as scipy_norm
 
 from mut_var.numerics.mixsqp import (
-    build_ordering_matrix,
+    build_constraints_matrix,
     mix_sqp,
     mix_sqp_ordered,
 )
@@ -310,7 +310,7 @@ def fit_refit_step(
             stats={"reason": "refit subset is empty"},
         )
 
-    A = build_ordering_matrix(prev_params.pi)
+    A = build_constraints_matrix(prev_params.pi, constrain_spike=config.constrain_spike)
 
     prior_arr = np.ones(L_sub_arr.shape[1], dtype=float) if prior is None else np.asarray(prior, dtype=float)
     L_aug, w_aug = _augment_with_prior(L_sub_arr, prior_arr)

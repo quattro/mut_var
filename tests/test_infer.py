@@ -172,6 +172,83 @@ def test_run_inference_pipeline_accepts_path_input():
     assert result_df.columns == ["mu0", "var0", "maf", "name", "value"]
 
 
+def test_run_inference_pipeline_filters_baseline_components_before_refit(monkeypatch):
+    import mut_var.numerics.mixture_fit as mixture_fit_module
+
+    baseline_params = mixture_fit_module.Params(
+        pi=np.asarray([0.7, 0.3, 0.0], dtype=float),
+        mu_k=np.asarray([0.0, 0.0], dtype=float),
+        var_k=np.asarray([1e-4, 1e-3], dtype=float),
+    )
+    fit_state = mixture_fit_module.FitState(
+        likelihood_matrix=np.ones((4, 3), dtype=float),
+        initial_params=baseline_params,
+    )
+    captured_baseline_priors: list[np.ndarray | None] = []
+    captured_refit_priors: list[np.ndarray | None] = []
+    captured_refit_shapes: list[tuple[int, ...]] = []
+    captured_prev_pi: list[np.ndarray] = []
+
+    monkeypatch.setattr(
+        mixture_fit_module,
+        "prepare_fit_state",
+        lambda **_kwargs: Solution(
+            value=fit_state,
+            result=RESULTS.successful,
+            stats={},
+            state=None,
+        ),
+    )
+
+    def _fit_baseline(**kwargs):
+        captured_baseline_priors.append(kwargs.get("prior"))
+        return Solution(
+            value=baseline_params,
+            result=RESULTS.successful,
+            stats={"objective": 0.0},
+            state=None,
+        )
+
+    monkeypatch.setattr(mixture_fit_module, "fit_baseline", _fit_baseline)
+
+    def _fit_refit_step(**kwargs):
+        captured_refit_priors.append(kwargs.get("prior"))
+        captured_refit_shapes.append(kwargs["L_sub"].shape)
+        captured_prev_pi.append(kwargs["prev_params"].pi.copy())
+        return Solution(
+            value=mixture_fit_module.Params(
+                pi=np.asarray([0.75, 0.25], dtype=float),
+                mu_k=np.asarray([0.0], dtype=float),
+                var_k=np.asarray([1e-4], dtype=float),
+            ),
+            result=RESULTS.successful,
+            stats={"epoch_count": 1},
+            state=None,
+        )
+
+    monkeypatch.setattr(mixture_fit_module, "fit_refit_step", _fit_refit_step)
+
+    result_df = run_inference_dataframe_pipeline(
+        "tests/fixtures/sumstats_valid.tsv",
+        config=InferenceConfig(num_clusters=3, max_iter=5, filter_threshold=0.1),
+        lowest=1e-3,
+        highest=5e-3,
+        num_breaks=2,
+    )
+
+    assert captured_baseline_priors
+    for prior in captured_baseline_priors:
+        np.testing.assert_allclose(prior, np.array([10.0, 1.0, 1.0]))
+    assert captured_refit_priors
+    for prior in captured_refit_priors:
+        np.testing.assert_allclose(prior, np.array([10.0, 1.0]))
+    assert captured_refit_shapes
+    assert all(shape[1] == 2 for shape in captured_refit_shapes)
+    assert captured_prev_pi
+    np.testing.assert_allclose(captured_prev_pi[0], np.array([0.7 / 1.0, 0.3 / 1.0]))
+    assert 1e-3 not in result_df["var0"].to_list()
+
+
 def test_run_inference_pipeline_auto_derives_lowest_from_data():
     # Fixture has MAFs {0.1, 0.2, 0.3, 0.4}; auto-derive should land at 0.1.
     result_df = run_inference_dataframe_pipeline(

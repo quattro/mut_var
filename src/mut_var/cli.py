@@ -114,7 +114,13 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         "--filter",
         type=float,
         default=1e-8,
-        help="Weight threshold for post-fit component filtering.",
+        help="Baseline weight threshold for pre-refit component filtering.",
+    )
+    model_group.add_argument(
+        "--constrain-spike",
+        action="store_true",
+        default=False,
+        help="Constrain refit models so the spike component cannot exceed its previous fitted weight.",
     )
     grid_group = infer.add_argument_group("MAF Grid")
     grid_group.add_argument(
@@ -334,6 +340,7 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
                 atol=args.atol,
                 rtol=args.rtol,
                 filter_threshold=args.filter,
+                constrain_spike=args.constrain_spike,
             ),
             log=log,
         )

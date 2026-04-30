@@ -1,6 +1,6 @@
 # mut_var
 
-Last verified: 2026-04-23
+Last verified: 2026-04-29
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.
@@ -17,6 +17,8 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Numerics APIs return `Solution` objects and use `Solution.result` as the canonical status signal.
   - Contracts above numerics do not expose `Solution`; they normalize outputs to tabular/dataframe forms.
   - Inference numerics prepare a shared likelihood matrix once, then reuse that state across baseline and refit.
+  - Inference pipeline applies a null-biased mixture prior to the baseline, filters low-weight baseline components before refit, and passes the matching filtered prior through the refit path.
+  - `mutvar infer --constrain-spike` opts refit models into spike-component constraints; without the flag, refits do not constrain component 0.
   - Simulation pipeline APIs return dataframe artifacts (`truth`, `observed`, `metadata`) and keep file writes in CLI/orchestration shells.
   - Baseline/refit numerics use mix-SQP with full-batch objective updates only.
   - Curve numerics support `sigmoid`, `isotonic`, and `mono_spline` methods, and the curve pipeline returns method-neutral parameter rows.
@@ -46,6 +48,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - Status-bearing `Solution` objects are reserved for numerics-facing contracts.
 - Numerics optimization uses mix-SQP (Kim et al. 2020) via a Cython/NumPy stack; JAX/Equinox/Optimistix have been removed.
 - Full-batch-only optimization is the canonical contract; `batch_size` controls were removed from public inference/baseline configs and CLI.
+- Spike-component refit constraints are opt-in through `InferenceConfig.constrain_spike` and `mutvar infer --constrain-spike`.
 - Contract types use stdlib `enum.Enum` and `@dataclass(frozen=True)` instead of Equinox primitives.
 - Pipeline-facing APIs normalize successful outputs to `polars.DataFrame`.
 - Plot generation is isolated from curve-fitting numerics so fit outputs remain unchanged by plotting.
@@ -55,6 +58,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `Solution` carries `value`, `result`, and optional `stats`/`state`.
 - Data-structure rule: data-only contracts use `NamedTuple`; behavior-bearing contracts use `@dataclass(frozen=True)`.
 - `InferenceConfig` no longer includes a `batch_size` field.
+- `InferenceConfig.constrain_spike` defaults to `False`; CLI callers must pass `--constrain-spike` to enable spike constraints.
 - Canonical quality gates remain aligned between local and CI:
   - `ruff check src/mut_var tests`
   - `mypy src/mut_var tests`
@@ -62,7 +66,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 
 ## Commands
 - `pip install -e .`
-- `mutvar infer <sumstats.tsv> [options]`
+- `mutvar infer <sumstats.tsv> [--constrain-spike] [options]`
 - `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline] [--fit-only]`
 - `mutvar simulate --output-prefix <prefix> [options]`
 - `ruff check src/mut_var tests`
@@ -93,5 +97,6 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - Public workflow config types live at package root (`mut_var.InferenceConfig`, `mut_var.SimulationConfig`); `InferenceArrays` remains under `mut_var.pipelines`.
 - Treat `Solution.result` (not presence of `value`) as the success signal for numerics APIs.
 - `mutvar infer` no longer accepts `--batch-size`; numerics are full-batch by contract.
+- `mutvar infer` leaves spike constraints off unless `--constrain-spike` is set.
 - `mutvar simulate` writes three files (`.truth.tsv`, `.observed.tsv`, `.meta.tsv`) and does not stream tabular output to stdout.
 - Keep algorithm changes targeted; broad model redesign requires separate design review.

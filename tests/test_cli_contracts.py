@@ -182,6 +182,60 @@ def test_cli_infer_passes_atol_rtol_to_pipeline_config(monkeypatch, tmp_path):
     assert_no_traceback(stderr.getvalue())
 
 
+def test_cli_infer_leaves_spike_constraint_disabled_by_default(monkeypatch, tmp_path):
+    _, stderr = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+    captured = {}
+
+    def _fake_pipeline(*_args, **kwargs):
+        captured["config"] = kwargs["config"]
+        return pl.DataFrame(
+            {
+                "mu0": [0.0],
+                "var0": [0.1],
+                "maf": [0.001],
+                "name": ["pi0"],
+                "value": [1.0],
+            }
+        )
+
+    monkeypatch.setattr(cli, "run_inference_pipeline", _fake_pipeline)
+
+    code = cli.run_cli(["infer", str(valid_path)])
+
+    assert code == 0
+    assert captured["config"].constrain_spike is False
+    assert_no_traceback(stderr.getvalue())
+
+
+def test_cli_infer_constrain_spike_flag_enables_refit_spike_constraint(monkeypatch, tmp_path):
+    _, stderr = _patch_streams(monkeypatch)
+    valid_path = tmp_path / "sumstats.tsv"
+    valid_path.write_text(fixture_path("sumstats_valid.tsv").read_text(encoding="utf-8"), encoding="utf-8")
+    captured = {}
+
+    def _fake_pipeline(*_args, **kwargs):
+        captured["config"] = kwargs["config"]
+        return pl.DataFrame(
+            {
+                "mu0": [0.0],
+                "var0": [0.1],
+                "maf": [0.001],
+                "name": ["pi0"],
+                "value": [1.0],
+            }
+        )
+
+    monkeypatch.setattr(cli, "run_inference_pipeline", _fake_pipeline)
+
+    code = cli.run_cli(["infer", str(valid_path), "--constrain-spike"])
+
+    assert code == 0
+    assert captured["config"].constrain_spike is True
+    assert_no_traceback(stderr.getvalue())
+
+
 def test_cli_maps_inference_pipeline_error_status_to_exit(monkeypatch, tmp_path):
     _, stderr = _patch_streams(monkeypatch)
     valid_path = tmp_path / "sumstats.tsv"

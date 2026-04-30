@@ -25,12 +25,13 @@ if TYPE_CHECKING:
 
 
 def _filter_components(params: Params, threshold: float) -> tuple[Params, np.ndarray]:
-    # Drop signal components with negligible weight but always retain the
-    # null component (index 0) so the point mass at zero stays in the model.
+    # Drop signal components with negligible baseline weight before the refit
+    # cycle, while always retaining the null component.
     keep = params.pi > threshold
     keep[0] = True
     pi = params.pi[keep]
-    pi = pi / np.sum(pi)
+    pi_sum = np.sum(pi)
+    pi = pi / pi_sum if pi_sum > 0.0 else np.ones_like(pi) / float(pi.shape[0])
     return (
         params.__class__(
             pi=pi,
@@ -111,6 +112,7 @@ def _run_refit_grid(
     init: Params,
     config: InferenceConfig,
     workflow_log: logging.Logger,
+    prior: np.ndarray | None = None,
 ) -> Solution:
     # Compress out observations that pass no MAF threshold; this shrinks every
     # submatrix slice below and keeps the solver from seeing rows that never
@@ -148,6 +150,7 @@ def _run_refit_grid(
             prev_params=models[-1],
             config=config,
             verbose=_solver_debug_callback(workflow_log, "refit"),
+            prior=prior,
         )
         if not is_recoverable_result(step_solution.result):
             return Solution(
@@ -275,16 +278,19 @@ def run_inference_pipeline(
             solution = baseline_solution
         else:
             workflow_log.info("inference pipeline: filtering baseline components")
-            filtered, keep = _filter_components(baseline_solution.value, inference_config.filter_threshold)
+            filtered_baseline, keep = _filter_components(baseline_solution.value, inference_config.filter_threshold)
+            workflow_log.info("inference pipeline: %d / %d remain", int(keep.sum()), int(keep.shape[0]))
             filtered_likelihood = fit_state.likelihood_matrix[:, keep]
+            filtered_prior = baseline_prior[keep]
 
             workflow_log.info("inference pipeline: fitting refit grid")
             refit_solution = _run_refit_grid(
                 filtered_likelihood,
                 maf_masks,
-                filtered,
+                filtered_baseline,
                 inference_config,
                 workflow_log,
+                prior=filtered_prior,
             )
             workflow_log.info(
                 "inference pipeline: refit grid completed with result '%s'",
@@ -302,6 +308,7 @@ def run_inference_pipeline(
                     stats={
                         "num_models": len(models),
                         "num_components": int(models[0].pi.shape[0]),
+                        "component_keep_mask": keep.tolist(),
                         "prepare": fit_state_solution.stats,
                         "baseline": baseline_solution.stats,
                         "refit": refit_solution.stats,
