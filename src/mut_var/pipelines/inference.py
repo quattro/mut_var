@@ -47,25 +47,35 @@ def _build_long_payload(models: list[Params], maf_grid: np.ndarray, af: np.ndarr
     af_arr = np.asarray(af, dtype=float)
 
     # The baseline row uses the smallest observed MAF as its "threshold" so it
-    # sits below the grid when the output is plotted in MAF order.
+    # sits below the grid when the output is plotted in MAF order. When the grid
+    # already starts at (or below) that value, the baseline row would collide
+    # with maf_grid[0] in the curve-fit input, so we drop models[0] in that case.
     per_row_maf = np.minimum(af_arr, 1.0 - af_arr)
     positive_maf = per_row_maf[per_row_maf > 0.0]
     baseline_maf = float(np.min(positive_maf)) if positive_maf.size > 0 else 0.0
-    maf_values = np.concatenate(([baseline_maf], maf_arr))
-    names = [f"pi{idx}" for idx in range(len(models))]
+
+    if baseline_maf < maf_arr[0]:
+        maf_values = np.concatenate(([baseline_maf], maf_arr))
+        emitted_models = models
+    else:
+        maf_values = maf_arr
+        emitted_models = models[1:]
+
+    names = [f"pi{idx}" for idx in range(len(emitted_models))]
 
     # mu_k and var_k are fixed after the baseline fit; only pi varies across
-    # MAF thresholds, so models[0] is the canonical source for component means/variances.
-    mu0 = np.pad(models[0].mu_k, (1, 0)).astype(float)
-    var0 = np.pad(models[0].var_k, (1, 0)).astype(float)
+    # MAF thresholds, so emitted_models[0] is the canonical source for component
+    # means/variances.
+    mu0 = np.pad(emitted_models[0].mu_k, (1, 0)).astype(float)
+    var0 = np.pad(emitted_models[0].var_k, (1, 0)).astype(float)
 
-    values = np.concatenate([np.asarray(model.pi, dtype=float) for model in models])
+    values = np.concatenate([np.asarray(model.pi, dtype=float) for model in emitted_models])
     n_comp = int(mu0.shape[0])
     name_values = [name for name in names for _ in range(n_comp)]
 
     return {
-        "mu0": np.tile(mu0, len(models)),
-        "var0": np.tile(var0, len(models)),
+        "mu0": np.tile(mu0, len(emitted_models)),
+        "var0": np.tile(var0, len(emitted_models)),
         "maf": np.repeat(maf_values, n_comp),
         "name": name_values,
         "value": values,
@@ -242,6 +252,9 @@ def run_inference_pipeline(
     workflow_log.info("inference pipeline: input validation complete")
     workflow_log.info("inference pipeline: building maf grid and masks")
     maf_grid = np.exp(np.linspace(np.log(resolved_lowest), np.log(highest), num_breaks))
+    # Pin endpoints to avoid log/exp round-trip drift in the boundary float values.
+    maf_grid[0] = resolved_lowest
+    maf_grid[-1] = highest
     maf_masks = build_maf_masks(arrays.af, maf_grid)
 
     workflow_log.info("inference pipeline: starting numerics")
