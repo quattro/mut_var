@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 def _filter_components(params: Params, threshold: float) -> tuple[Params, np.ndarray]:
     # Drop signal components with negligible baseline weight before the refit
     # cycle, while always retaining the null component.
-    keep = params.pi > threshold
+    keep = params.pi >= threshold
     keep[0] = True
     pi = params.pi[keep]
     pi_sum = np.sum(pi)
