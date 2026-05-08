@@ -17,7 +17,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Public numerics entrypoints return `Solution` with status in `result` for non-success paths.
   - `prepare_fit_state` validates array inputs once, constructs the fixed component grid, and materializes the shared likelihood matrix.
   - Baseline optimization uses mix-SQP on a fixed log-spaced variance grid (optimizes `pi` only).
-  - Refit optimization consumes precomputed likelihood matrices and uses mix-SQP-ordered with a homogeneous constraint matrix `A π ≤ 0`; `InferenceConfig.constrain_spike=True` includes the null-component cap and spike-vs-signal ordering, while the default only constrains signal-component adjacent ratios.
+  - Refit optimization consumes precomputed likelihood matrices and uses mix-SQP-ordered with a homogeneous constraint matrix `A π ≤ 0`; `InferenceConfig.constrain_spike=True` includes the null-component floor and spike-vs-signal ordering, while the default only constrains signal-component adjacent ratios.
   - Optional `verbose` callable `(step, obj) -> None` emits per-step diagnostics.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.
   - Curve fitting supports `sigmoid`, `isotonic`, and `mono_spline` methods through a method-neutral fit result.

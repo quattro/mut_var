@@ -277,25 +277,25 @@ def build_constraints_matrix(baseline: np.ndarray, *, constrain_spike: bool = Fa
     **Returns:**
 
     - ``A``: Constraint matrix; ``A pi <= 0`` encodes adjacent-pair ordering.
-      When `constrain_spike` is true, it also encodes the null-weight cap and
+      When `constrain_spike` is true, it also encodes the null-weight floor and
       adjacent ordering between the spike and first signal component.
 
-    When `constrain_spike` is true, row 0 encodes the null-weight cap:
+    When `constrain_spike` is true, row 0 encodes the null-weight floor:
 
-    $$\pi_0 \leq b_0$$
+    $$\pi_0 \geq b_0$$
 
     in the homogeneous form used by mix-SQP:
 
-    $$(1-b_0)\pi_0 - b_0 \sum_{j>0}\pi_j \leq 0.$$
+    $$(b_0 - 1)\pi_0 + b_0 \sum_{j>0}\pi_j \leq 0.$$
 
     The remaining rows encode, for each adjacent pair of constrained components ``i`` and
     ``i+1``:
 
-    $$b_{i+1} \pi_i - b_i \pi_{i+1} \leq 0
-    \implies \frac{\pi_i}{b_i} \leq \frac{\pi_{i+1}}{b_{i+1}}$$
+    $$-b_{i+1} \pi_i + b_i \pi_{i+1} \leq 0
+    \implies \frac{\pi_{i+1}}{b_{i+1}} \leq \frac{\pi_i}{b_i}$$
 
     where ``b`` is the normalised baseline proportion vector. This enforces
-    nondecreasing enrichment ``\pi_i / b_i`` across constrained component
+    nonincreasing enrichment ``\pi_i / b_i`` across constrained component
     indices, with spike constraints included only when requested.
     """
     b = np.asarray(baseline, dtype=float)
@@ -310,13 +310,14 @@ def build_constraints_matrix(baseline: np.ndarray, *, constrain_spike: bool = Fa
     offset = 0
     if constrain_spike:
         b0 = b[0]
-        A[0, :] = -b0
-        A[0, 0] = 1.0 - b0
+        A[0, :] = b0
+        A[0, 0] = b0 - 1.0
         offset = 1
+
     for row, i in enumerate(range(start_pair, m - 1), start=offset):
         # Constrain the cross-ratio of adjacent components i and i+1.
-        A[row, i] = b[i + 1]
-        A[row, i + 1] = -b[i]
+        A[row, i] = -b[i + 1]
+        A[row, i + 1] = b[i]
     return A
 
 

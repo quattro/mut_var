@@ -168,17 +168,17 @@ def test_baseline_and_refit_use_same_prior_pseudo_observations(monkeypatch):
     np.testing.assert_allclose(captured["refit"][1], expected_weights)
 
 
-def test_constraint_matrix_includes_null_component_cap():
+def test_constraint_matrix_includes_null_component_floor():
     baseline = np.array([0.6, 0.3, 0.1])
 
     constraints = mixsqp_module.build_constraints_matrix(baseline, constrain_spike=True)
 
     assert constraints.shape == (3, 3)
-    np.testing.assert_allclose(constraints[0], np.array([0.4, -0.6, -0.6]))
-    np.testing.assert_allclose(constraints[1], np.array([0.3, -0.6, 0.0]))
-    np.testing.assert_allclose(constraints[2], np.array([0.0, 0.1, -0.3]))
-    assert constraints[0] @ np.array([0.7, 0.2, 0.1]) > 0.0
-    assert constraints[0] @ np.array([0.6, 0.25, 0.15]) <= 0.0
+    np.testing.assert_allclose(constraints[0], np.array([-0.4, 0.6, 0.6]))
+    np.testing.assert_allclose(constraints[1], np.array([-0.3, 0.6, 0.0]))
+    np.testing.assert_allclose(constraints[2], np.array([0.0, -0.1, 0.3]))
+    assert constraints[0] @ np.array([0.5, 0.3, 0.2]) > 0.0
+    assert constraints[0] @ np.array([0.7, 0.2, 0.1]) <= 0.0
 
 
 def test_ordered_qp_solver_tracks_zero_bound_constraints():
@@ -198,7 +198,7 @@ def test_ordered_qp_solver_tracks_zero_bound_constraints():
         [0.1043872229360963, 0.0570553954283856, 0.23167923122797676, 0.6020230798663861, 0.00485507054115538]
     )
     constraints = mixsqp_module.build_constraints_matrix(baseline)
-    feasible_better = np.array([0.0, 0.0, 0.03304169878694252, 0.08585950998783105, 0.8162883707070141])
+    feasible_better = np.array([0.5, 0.2, 0.2, 0.1, 0.0])
 
     solution = mixsqp_module.solve_qp_ordered(hessian, linear, constraints, baseline, max_iter=1000, tol=1e-9)
 
@@ -210,7 +210,7 @@ def test_ordered_qp_solver_tracks_zero_bound_constraints():
     assert solution_objective <= candidate_objective + 1e-6
 
 
-def test_fit_refit_step_enforces_previous_null_component_cap():
+def test_fit_refit_step_enforces_previous_null_component_floor():
     init = mixture_fit_module.Params(
         pi=np.array([0.4, 0.3, 0.3]),
         mu_k=np.array([0.0, 0.0]),
@@ -218,16 +218,16 @@ def test_fit_refit_step_enforces_previous_null_component_cap():
     )
 
     solution = fit_refit_step(
-        L_sub=np.tile(np.array([[1000.0, 1.0, 1.0]]), (12, 1)),
+        L_sub=np.tile(np.array([[1.0, 1000.0, 1000.0]]), (12, 1)),
         prev_params=init,
         config=InferenceConfig(num_clusters=3, max_iter=50, constrain_spike=True),
     )
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert solution.value.pi[0] <= init.pi[0] + 1e-8
+    assert solution.value.pi[0] >= init.pi[0] - 1e-8
 
 
-def test_fit_refit_step_allows_null_component_enrichment_without_spike_constraint():
+def test_fit_refit_step_allows_null_component_depletion_without_spike_constraint():
     init = mixture_fit_module.Params(
         pi=np.array([0.4, 0.3, 0.3]),
         mu_k=np.array([0.0, 0.0]),
@@ -235,16 +235,16 @@ def test_fit_refit_step_allows_null_component_enrichment_without_spike_constrain
     )
 
     solution = fit_refit_step(
-        L_sub=np.tile(np.array([[1000.0, 1.0, 1.0]]), (12, 1)),
+        L_sub=np.tile(np.array([[1.0, 1000.0, 1000.0]]), (12, 1)),
         prev_params=init,
         config=InferenceConfig(num_clusters=3, max_iter=50, constrain_spike=False),
     )
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert solution.value.pi[0] > init.pi[0] + 0.1
+    assert solution.value.pi[0] < init.pi[0] - 0.1
 
 
-def test_fit_refit_step_allows_later_component_enrichment_under_constraints():
+def test_fit_refit_step_caps_later_component_enrichment_under_constraints():
     init = mixture_fit_module.Params(
         pi=np.array([0.4, 0.3, 0.3]),
         mu_k=np.array([0.0, 0.0]),
@@ -258,5 +258,5 @@ def test_fit_refit_step_allows_later_component_enrichment_under_constraints():
     )
 
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
-    assert solution.value.pi[0] <= init.pi[0] + 1e-8
-    assert solution.value.pi[2] > init.pi[2] + 0.1
+    assert solution.value.pi[0] >= init.pi[0] - 1e-8
+    assert solution.value.pi[2] <= init.pi[2] + 1e-8

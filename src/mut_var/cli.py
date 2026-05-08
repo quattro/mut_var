@@ -120,7 +120,7 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
         "--constrain-spike",
         action="store_true",
         default=False,
-        help="Constrain refit models so the spike component cannot exceed its previous fitted weight.",
+        help="Constrain refit models so the spike component cannot fall below its previous fitted weight.",
     )
     grid_group = infer.add_argument_group("MAF Grid")
     grid_group.add_argument(
