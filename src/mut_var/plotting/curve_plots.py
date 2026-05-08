@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 
 def render_curve_plot(
@@ -16,17 +17,18 @@ def render_curve_plot(
     r"""Render and save a semilog fitted-curve plot, returning the written path."""
     path = Path(output_path)
 
-    plt.figure(figsize=(6, 4))
-    plt.semilogx(maf, value, "o", label="data")
-    plt.semilogx(maf_space, fitted_values, "-", label="fit")
-    plt.xlabel("MAF")
-    plt.ylabel("Value")
-    plt.title(title)
-    plt.legend()
-    plt.tight_layout()
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.semilogx(maf, value, "o", label="data")
+    ax.semilogx(maf_space, fitted_values, "-", label="fit")
+    ax.set_xlabel("MAF")
+    ax.set_ylabel("Value")
+    ax.set_title(title)
+    ax.legend()
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.3e"))
+    fig.tight_layout()
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(path, dpi=300)
-    plt.close()
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
 
     return path
