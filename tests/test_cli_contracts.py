@@ -3,11 +3,85 @@ import sys
 from io import StringIO
 
 import polars as pl
+import pytest
 
 import mut_var.cli as cli
 import mut_var.numerics.mixture_fit as mixture_fit_module
 
 from tests.helpers import assert_no_traceback, fixture_path
+
+
+@pytest.mark.parametrize("command", ["infer", "curve"])
+@pytest.mark.parametrize("alias", ["same", "symlink", "hardlink"])
+def test_cli_rejects_output_aliasing_input(monkeypatch, tmp_path, command, alias):
+    _, stderr = _patch_streams(monkeypatch)
+    source = tmp_path / "input.tsv"
+    source.write_text("original input\n")
+    output = source if alias == "same" else tmp_path / "alias.tsv"
+    if alias == "symlink":
+        output.symlink_to(source)
+    elif alias == "hardlink":
+        output.hardlink_to(source)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Pipeline must not run when output aliases input")
+
+    monkeypatch.setattr(cli, "run_inference_pipeline", unexpected)
+    monkeypatch.setattr(cli, "run_curve_pipeline", unexpected)
+    assert cli.run_cli([command, str(source), "-o", str(output)]) == 2
+    assert source.read_text() == "original input\n"
+    assert "same file" in stderr.getvalue()
+
+
+@pytest.mark.parametrize("command", ["infer", "curve"])
+def test_cli_preserves_existing_output_on_pipeline_failure(monkeypatch, tmp_path, command):
+    _patch_streams(monkeypatch)
+    output = tmp_path / "output.tsv"
+    output.write_text("previous results\n")
+    assert cli.run_cli([command, str(tmp_path / "missing.tsv"), "-o", str(output)]) == 2
+    assert output.read_text() == "previous results\n"
+
+
+@pytest.mark.parametrize("command", ["infer", "curve"])
+def test_cli_preserves_existing_output_on_parse_failure(monkeypatch, tmp_path, command):
+    _patch_streams(monkeypatch)
+    output = tmp_path / "output.tsv"
+    output.write_text("previous results\n")
+    assert cli.run_cli([command, "input.tsv", "-o", str(output), "--unknown-option"]) == 2
+    assert output.read_text() == "previous results\n"
+
+
+@pytest.mark.parametrize("command", ["infer", "curve"])
+def test_cli_preserves_output_on_write_failure(monkeypatch, tmp_path, command):
+    _, stderr = _patch_streams(monkeypatch)
+    output = tmp_path / "output.tsv"
+    output.write_text("previous results\n")
+
+    class BrokenResult:
+        def write_csv(self, destination, **kwargs):
+            destination.write("partial data")
+            raise OSError("disk full")
+
+    monkeypatch.setattr(cli, "run_inference_pipeline", lambda *a, **k: BrokenResult())
+    monkeypatch.setattr(cli, "run_curve_pipeline", lambda *a, **k: BrokenResult())
+    assert cli.run_cli([command, "input.tsv", "-o", str(output)]) == 1
+    assert output.read_text() == "previous results\n"
+    assert "disk full" in stderr.getvalue()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["output.tsv"]
+
+
+@pytest.mark.parametrize("command", ["infer", "curve"])
+@pytest.mark.parametrize("destination", ["file", "stdout"])
+def test_cli_writes_successful_result(monkeypatch, tmp_path, command, destination):
+    stdout, _ = _patch_streams(monkeypatch)
+    output = tmp_path / "output.tsv"
+    result = pl.DataFrame({"value": [0.25]})
+    monkeypatch.setattr(cli, "run_inference_pipeline", lambda *a, **k: result)
+    monkeypatch.setattr(cli, "run_curve_pipeline", lambda *a, **k: result)
+    target = str(output) if destination == "file" else "-"
+    assert cli.run_cli([command, "input.tsv", "-o", target]) == 0
+    content = output.read_text() if destination == "file" else stdout.getvalue()
+    assert content == "value\n0.25\n"
 
 
 def _guard_numerics(monkeypatch):

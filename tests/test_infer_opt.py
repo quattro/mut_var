@@ -260,3 +260,101 @@ def test_fit_refit_step_caps_later_component_enrichment_under_constraints():
     assert solution.result in (RESULTS.successful, RESULTS.max_steps_reached)
     assert solution.value.pi[0] >= init.pi[0] - 1e-8
     assert solution.value.pi[2] <= init.pi[2] + 1e-8
+
+
+def test_mix_sqp_finds_boundary_optimum_with_singular_hessian():
+    likelihood = np.tile([1.0, 2.0], (100, 1))
+    weights, info = mixsqp_module.mix_sqp(likelihood, atol=1e-12, rtol=1e-12)
+
+    assert info["converged"]
+    np.testing.assert_allclose(weights, [0.0, 1.0], atol=1e-8)
+
+
+def test_refit_preserves_ordering_for_rare_components():
+    baseline = np.array([0.3, 1e-7, 1e-5, 0.6999899])
+    params = mixture_fit_module.Params(baseline, np.zeros(3), np.array([1.0, 2.0, 3.0]))
+    solution = fit_refit_step(
+        np.tile([1.0, 1.0, 100.0, 1.0], (100, 1)),
+        params,
+        InferenceConfig(4, atol=1e-10, rtol=1e-10, constrain_spike=True),
+    )
+
+    assert solution.result == RESULTS.successful
+    enrichment = solution.value.pi / baseline
+    assert np.max(np.diff(enrichment)) <= 1e-5
+    # The best feasible fit eliminates the last slab and scales the first
+    # three proportions together, saturating both adjacent constraints.
+    expected = np.r_[baseline[:3] / baseline[:3].sum(), 0.0]
+    np.testing.assert_allclose(solution.value.pi, expected, atol=1e-8)
+
+
+def test_ordered_fit_keeps_zero_component_zero_and_reaches_optimum():
+    baseline = np.array([0.2, 0.7, 0.1, 0.0])
+    constraints = mixsqp_module.build_constraints_matrix(baseline)
+    weights, info = mixsqp_module.mix_sqp_ordered(
+        np.tile([1.0, 1.0, 100.0, 1000.0], (20, 1)),
+        constraints,
+        baseline,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+
+    assert info["converged"]
+    np.testing.assert_allclose(weights, [0.0, 0.875, 0.125, 0.0], atol=1e-8)
+
+
+def test_mix_sqp_does_not_call_an_unsolved_inner_qp_convergence():
+    # No inner iterations deliberately supplies a zero SQP direction at a
+    # nonoptimal starting point. The outer fit must still find real descent.
+    weights, info = mixsqp_module.mix_sqp(
+        np.tile([1.0, 2.0], (10, 1)),
+        inner_max_iter=0,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+
+    assert info["converged"]
+    np.testing.assert_allclose(weights, [0.0, 1.0], atol=1e-8)
+
+
+def test_ordered_fit_does_not_freeze_positive_weights_below_qp_tolerance():
+    likelihood = np.array(
+        [
+            [1.1073762447915043, 18.56586711061899, 3.6327851982771673, 2.1374933217312617],
+            [0.04417043608033701, 0.0014162036809408011, 0.07189758351646605, 0.36761634181141106],
+            [146.32624161099918, 15.214321503569275, 0.06405851312948, 0.3402958101972494],
+        ]
+    )
+    baseline = np.array([3.065852914555147e-5, 0.04735749213830167, 0.9526116840459671, 1.6528658567709214e-7])
+    constraints = mixsqp_module.build_constraints_matrix(baseline, constrain_spike=True)
+    weights, info = mixsqp_module.mix_sqp_ordered(
+        likelihood,
+        constraints,
+        baseline,
+        atol=1e-10,
+        rtol=1e-10,
+        max_iter=100,
+    )
+    feasible_candidate = np.array([0.685, 0.315, 0.0, 0.0])
+
+    assert info["converged"]
+    assert np.max(constraints @ feasible_candidate) <= 0.0
+    assert np.log(likelihood @ weights).mean() >= np.log(likelihood @ feasible_candidate).mean() - 1e-7
+
+
+@pytest.mark.parametrize("constrain_spike", [False, True])
+def test_ordered_fit_does_not_resurrect_consecutive_zero_components(constrain_spike):
+    baseline = np.array([0.2, 0.8, 0.0, 0.0])
+    constraints = mixsqp_module.build_constraints_matrix(baseline, constrain_spike=constrain_spike)
+    weights, info = mixsqp_module.mix_sqp_ordered(
+        np.tile([1.0, 1.0, 100.0, 1000.0], (20, 1)),
+        constraints,
+        baseline,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+
+    assert info["converged"]
+    np.testing.assert_allclose(weights[2:], 0.0, atol=1e-12)
+    if constrain_spike:
+        assert weights[0] >= baseline[0] - 1e-12

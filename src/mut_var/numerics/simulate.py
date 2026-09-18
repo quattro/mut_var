@@ -27,6 +27,8 @@ def _nonfinite(reason: str) -> Solution:
 
 
 def _validate_simulation_inputs(config: SimulationConfig) -> Solution | None:
+    if isinstance(config.seed, bool) or not isinstance(config.seed, (int, np.integer)) or config.seed < 0:
+        return _invalid("seed must be a non-negative integer")
     if not isinstance(config.n_rows, int):
         return _invalid("n_rows must be an integer >= 1")
     if config.n_rows < 1:
@@ -150,7 +152,7 @@ def simulate_mixture_data(
 
     **Arguments:**
 
-    - `config`: Simulation workflow controls including row count, seed,
+    - `config`: Simulation workflow controls including row count, non-negative integer seed,
       mixture, AF generator, variance-link, and SE model parameters.
 
     **Returns:**

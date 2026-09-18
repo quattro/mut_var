@@ -226,6 +226,9 @@ def run_inference_pipeline(
     """
     workflow_log = logging.getLogger(__name__) if log is None else log
     inference_config = config if config is not None else InferenceConfig(num_clusters=30)
+    config_error = mixture_fit_module._inference_config_error(inference_config)
+    if config_error is not None:
+        raise ValueError(config_error)
 
     workflow_log.info("inference pipeline: validating input data")
     arrays = load_inference_arrays(path, af_col, beta_col, se_col)

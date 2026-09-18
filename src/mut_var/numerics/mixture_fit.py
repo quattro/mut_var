@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from numbers import Integral, Real
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -25,6 +26,22 @@ class Params(NamedTuple):
 class FitState(NamedTuple):
     likelihood_matrix: np.ndarray
     initial_params: Params
+
+
+def _inference_config_error(config: InferenceConfig) -> str | None:
+    for name, minimum in (("num_clusters", 2), ("max_iter", 1)):
+        value = getattr(config, name)
+        if isinstance(value, bool) or not isinstance(value, Integral) or value < minimum:
+            return f"{name} must be an integer >= {minimum}"
+    for name in ("atol", "rtol", "filter_threshold"):
+        value = getattr(config, name)
+        if isinstance(value, bool) or not isinstance(value, Real) or not np.isfinite(value) or value < 0:
+            return f"{name} must be finite and nonnegative"
+    if config.filter_threshold > 1:
+        return "filter_threshold must be <= 1"
+    if not isinstance(config.constrain_spike, (bool, np.bool_)):
+        return "constrain_spike must be boolean"
+    return None
 
 
 def _build_likelihood_matrix(
@@ -143,12 +160,12 @@ def _build_baseline_params(beta_hat: np.ndarray, s2: np.ndarray, config: Inferen
     # max(beta^2 - s2) is a method-of-moments upper bound on the true effect variance.
     max_candidate = float(np.max(beta_hat**2 - s2))
     if max_candidate <= 0.0 or not np.isfinite(max_candidate):
-        # Fallback when all signal is noise: span 3 orders of magnitude above min_val.
+        # Fallback spans a factor of 64 in variance above the lower bound.
         max_val = 8.0 * min_val
     else:
         # 2× the MOM estimate gives comfortable headroom above the observed signal.
         max_val = 2.0 * np.sqrt(max_candidate)
-    if not np.isfinite(max_val) or max_val <= 0.0:
+    if not np.isfinite(max_val) or max_val <= min_val:
         max_val = 8.0 * min_val
 
     # Squared because var_k stores variances, not standard deviations.
@@ -178,15 +195,17 @@ def prepare_fit_state(
     **Failure Modes:**
 
     - Returns `RESULTS.invalid_input` for non-array, non-finite, or shape-invalid
-      inputs, or when `config.num_clusters < 2`.
+      inputs or invalid configuration (integer counts, finite nonnegative
+      tolerances, filter threshold in `[0, 1]`, and boolean spike constraint).
     - Returns `RESULTS.empty_subset` when no observations are available.
     - Returns `RESULTS.nonfinite_objective` when the likelihood matrix is non-finite.
     """
-    if config.num_clusters < 2:
+    config_error = _inference_config_error(config)
+    if config_error is not None:
         return Solution(
             value=None,
             result=RESULTS.invalid_input,
-            stats={"reason": "num_clusters must be >= 2"},
+            stats={"reason": config_error},
         )
 
     validated = _validate_array_inputs(beta_hat, s2)
@@ -238,8 +257,12 @@ def fit_baseline(
 
     **Failure Modes:**
 
+    - Returns `RESULTS.invalid_input` for invalid inference configuration.
     - Returns `RESULTS.nonfinite_objective` when mix-SQP fails.
     """
+    config_error = _inference_config_error(config)
+    if config_error is not None:
+        return Solution(None, RESULTS.invalid_input, stats={"reason": config_error})
     L = state.likelihood_matrix
     prior_arr = np.ones(L.shape[1], dtype=float) if prior is None else np.asarray(prior, dtype=float)
     L_aug, w_aug = _augment_with_prior(L, prior_arr)
@@ -299,9 +322,13 @@ def fit_refit_step(
 
     **Failure Modes:**
 
+    - Returns `RESULTS.invalid_input` for invalid inference configuration.
     - Returns `RESULTS.empty_subset` when no observations are selected.
     - Returns `RESULTS.nonfinite_objective` when ordered mix-SQP fails.
     """
+    config_error = _inference_config_error(config)
+    if config_error is not None:
+        return Solution(None, RESULTS.invalid_input, stats={"reason": config_error})
     L_sub_arr = np.asarray(L_sub, dtype=float)
     if L_sub_arr.shape[0] == 0:
         return Solution(

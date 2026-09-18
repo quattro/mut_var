@@ -141,7 +141,7 @@ def test_run_inference_pipeline_raises_on_empty_subset_result(sumstats_valid_df,
             lowest=1e-3,
             highest=5e-3,
             num_breaks=2,
-            config=InferenceConfig(num_clusters=1, max_iter=2),
+            config=InferenceConfig(num_clusters=2, max_iter=2),
         )
 
     assert "empty subset" in str(err.value)

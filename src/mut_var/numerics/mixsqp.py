@@ -6,10 +6,29 @@ from typing import Any
 
 import numpy as np
 
+from scipy.optimize import linprog
+
 from mut_var.numerics._core import compute_grad_hess, compute_objective, line_search
 from mut_var.types import RESULTS
 
 RECOVERABLE_RESULTS = (RESULTS.successful, RESULTS.max_steps_reached)
+
+
+def _regularize_qp(H: np.ndarray, a: np.ndarray, x0: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    # A proximal ridge preserves the gradient at x0 while giving singular
+    # Hessians curvature along their null space. A pseudoinverse alone would
+    # discard those directions even when the linear term drives descent.
+    scale = max(float(np.max(np.abs(H))), float(np.max(np.abs(a))), 1.0)
+    ridge = 1e-10
+    return H / scale + ridge * np.eye(len(a)), a / scale - ridge * x0
+
+
+def _scale_constraints(A: np.ndarray) -> np.ndarray:
+    # Constraint feasibility must not depend on baseline component weights.
+    # Drop vacuous zero rows and make each nonzero row unit scale.
+    scale = np.max(np.abs(A), axis=1)
+    keep = scale > 0.0
+    return A[keep] / scale[keep, None]
 
 
 def solve_qp_nonneg(
@@ -31,12 +50,14 @@ def solve_qp_nonneg(
 
     **Returns:**
 
-    - ``y*``: ``(m,)`` optimal nonneg solution.
+    - ``y*``: ``(m,)`` nonnegative QP step, using a small proximal ridge
+      around ``x0`` to stabilize singular Hessians.
     """
     # Active-set strategy: maintain W, the set of variables currently fixed to
     # zero (the "active" bound constraints). At each iteration we work only in
     # the subspace F = {0..m-1} \ W of "free" variables, where the bound is
     # inactive, and compute a Newton step restricted to that subspace.
+    H, a = _regularize_qp(H, a, x0)
     m = H.shape[0]
     y = np.maximum(x0.astype(float, copy=True), 0.0)
     # Initialise W to the variables already at zero in the starting point.
@@ -128,8 +149,10 @@ def solve_qp_ordered(
 
     **Returns:**
 
-    - ``y*``: ``(m,)`` optimal solution satisfying both constraint families.
+    - ``y*``: ``(m,)`` QP step satisfying both constraint families, using
+      scaled constraints and a small proximal ridge around ``x0``.
     """
+    A = _scale_constraints(A)
     m = H.shape[0]
     p = A.shape[0]
 
@@ -137,11 +160,15 @@ def solve_qp_ordered(
     if p == 0:
         return solve_qp_nonneg(H, a, x0, max_iter, tol)
 
+    H, a = _regularize_qp(H, a, x0)
+
     # Two active sets for the two constraint families:
     #   W_bound  — bound constraints y_i >= 0 that are currently active (y_i = 0).
     #   W_ord    — linear constraints (Ay)_j <= 0 that are currently active.
     y = np.maximum(x0.astype(float, copy=True), 0.0)
-    W_bound: set[int] = set(int(i) for i in np.where(y <= tol)[0])
+    # Small positive weights are free: freezing one can lock a much larger
+    # adjacent component through an active ratio constraint.
+    W_bound: set[int] = set(int(i) for i in np.where(y <= 0.0)[0])
     W_ord: set[int] = set(int(i) for i in np.where(A @ y >= -tol)[0])
 
     for _ in range(max_iter):
@@ -258,8 +285,9 @@ def solve_qp_ordered(
 
         # Add whichever constraint became active to its respective active set.
         if blocking_b is not None:
+            y[blocking_b] = 0.0
             W_bound.add(blocking_b)
-        W_bound.update(int(i) for i in np.where(y <= tol)[0])
+        W_bound.update(int(i) for i in np.where(y <= 0.0)[0])
         if blocking_o is not None:
             W_ord.add(blocking_o)
 
@@ -279,6 +307,8 @@ def build_constraints_matrix(baseline: np.ndarray, *, constrain_spike: bool = Fa
     - ``A``: Constraint matrix; ``A pi <= 0`` encodes adjacent-pair ordering.
       When `constrain_spike` is true, it also encodes the null-weight floor and
       adjacent ordering between the spike and first signal component.
+      Zero-weight signal components are fixed at zero, including consecutive
+      zeros whose adjacent cross-product constraints would otherwise vanish.
 
     When `constrain_spike` is true, row 0 encodes the null-weight floor:
 
@@ -305,7 +335,8 @@ def build_constraints_matrix(baseline: np.ndarray, *, constrain_spike: bool = Fa
 
     start_pair = 0 if constrain_spike else 1
     n_pair_rows = max((m - 1) - start_pair, 0)
-    n_rows = n_pair_rows + (1 if constrain_spike else 0)
+    zero_signals = np.flatnonzero(b[1:] == 0.0) + 1
+    n_rows = n_pair_rows + (1 if constrain_spike else 0) + len(zero_signals)
     A = np.zeros((n_rows, m))
     offset = 0
     if constrain_spike:
@@ -318,6 +349,11 @@ def build_constraints_matrix(baseline: np.ndarray, *, constrain_spike: bool = Fa
         # Constrain the cross-ratio of adjacent components i and i+1.
         A[row, i] = -b[i + 1]
         A[row, i + 1] = b[i]
+    # Cross-products alone lose support information when both adjacent
+    # baseline weights are zero. Preserve every zero signal explicitly;
+    # the spike remains free to increase from zero.
+    for row, i in enumerate(zero_signals, start=offset + n_pair_rows):
+        A[row, i] = 1.0
     return A
 
 
@@ -385,6 +421,37 @@ def _prepare_mixsqp_inputs(
     return L_f, w_arr, w_sum
 
 
+def _optimality_gap(
+    L: np.ndarray,
+    x: np.ndarray,
+    w: np.ndarray,
+    w_sum: float,
+    A: np.ndarray | None = None,
+) -> tuple[float, np.ndarray]:
+    # For a convex mixture objective, the largest feasible linear decrease
+    # bounds suboptimality. Unlike step size it detects a stalled inner QP.
+    pi = _normalise(x)
+    grad = -(L.T @ (w / (L @ pi))) / w_sum
+    if A is None or A.shape[0] == 0:
+        vertex = np.zeros_like(pi)
+        vertex[np.argmin(grad)] = 1.0
+    else:
+        result = linprog(
+            grad,
+            A_ub=A,
+            b_ub=np.zeros(A.shape[0]),
+            A_eq=np.ones((1, len(pi))),
+            b_eq=np.ones(1),
+            bounds=(0.0, None),
+            method="highs",
+            options={"primal_feasibility_tolerance": 1e-10, "dual_feasibility_tolerance": 1e-10},
+        )
+        if not result.success:
+            raise RuntimeError(f"Could not check constrained optimality: {result.message}")
+        vertex = result.x
+    return max(float(grad @ (pi - vertex)), 0.0), vertex
+
+
 def mix_sqp(
     L: np.ndarray,
     x0: np.ndarray | None = None,
@@ -419,7 +486,9 @@ def mix_sqp(
     **Returns:**
 
     - ``(pi, info)``: Normalised mixture proportions and a diagnostics dict
-      with keys ``converged``, ``n_iter``, and ``objective``.
+      with keys ``converged``, ``n_iter``, ``objective``, and ``optimality_gap``.
+      Convergence requires small accepted steps and objective changes plus a
+      feasible-direction optimality gap no larger than ``atol + rtol``.
     """
     L = np.asarray(L, dtype=float)
     _n, m = L.shape
@@ -441,6 +510,8 @@ def mix_sqp(
 
     converged = False
     n_iter = 0
+    fallback_vertex: np.ndarray | None = None
+    gap = float("inf")
     for iteration in range(max_iter):
         # Outer SQP step: approximate the objective locally by a quadratic
         # using the current gradient g and Hessian H, then solve that QP.
@@ -450,8 +521,14 @@ def mix_sqp(
         # where a = g - Hx shifts the quadratic so the unconstrained minimiser
         # is at y = x (i.e. we're computing a displacement from x).
         a = g - H @ x
-        y_star = solve_qp_nonneg(H, a, x.copy(), max_iter=inner_max_iter)
-        p = y_star - x  # SQP search direction
+        if fallback_vertex is None:
+            y_star = solve_qp_nonneg(H, a, x.copy(), max_iter=inner_max_iter)
+            p = y_star - x
+        else:
+            # The QP stalled away from stationarity. Its linearized objective
+            # supplies a feasible descent direction for the same line search.
+            p = fallback_vertex - x
+            fallback_vertex = None
 
         # Armijo backtracking line search along p to ensure sufficient decrease.
         alpha = line_search(L_f, x, w_arr, w_sum, p, f, g, q.copy(), x_try.copy())
@@ -473,11 +550,17 @@ def mix_sqp(
         n_iter = iteration + 1
 
         if step_converged and objective_converged:
-            converged = True
-            break
+            gap, vertex = _optimality_gap(L_f, x, w_arr, w_sum)
+            if gap <= atol + rtol:
+                converged = True
+                break
+            fallback_vertex = vertex
 
     pi = _normalise(x)
-    return pi, {"converged": converged, "n_iter": n_iter, "objective": float(f)}
+    if not converged:
+        gap, _ = _optimality_gap(L_f, pi, w_arr, w_sum)
+    f = compute_objective(L_f, pi, w_arr, w_sum, q)
+    return pi, {"converged": converged, "n_iter": n_iter, "objective": float(f), "optimality_gap": gap}
 
 
 def mix_sqp_ordered(
@@ -517,10 +600,12 @@ def mix_sqp_ordered(
     **Returns:**
 
     - ``(pi, info)``: Normalised mixture proportions and a diagnostics dict
-      with keys ``converged``, ``n_iter``, and ``objective``.
+      with keys ``converged``, ``n_iter``, ``objective``, and ``optimality_gap``.
+      Convergence requires small accepted steps and objective changes plus a
+      feasible-direction optimality gap no larger than ``atol + rtol``.
     """
     L = np.asarray(L, dtype=float)
-    A = np.asarray(A, dtype=float)
+    A = _scale_constraints(np.asarray(A, dtype=float))
     _n, m = L.shape
     L_f, w_arr, w_sum = _prepare_mixsqp_inputs(L, w)
 
@@ -545,14 +630,24 @@ def mix_sqp_ordered(
 
     converged = False
     n_iter = 0
+    fallback_vertex: np.ndarray | None = None
+    gap = float("inf")
     for iteration in range(max_iter):
         compute_grad_hess(L_f, x, w_arr, w_sum, g, H, q, B)
 
         # Local QP with both bound and refit constraints:
         #   min 1/2 y'Hy + y'a   s.t.   y >= 0,  Ay <= 0
         a = g - H @ x
-        y_star = solve_qp_ordered(H, a, A, x.copy(), max_iter=inner_max_iter)
-        p = y_star - x
+        if fallback_vertex is None:
+            y_star = solve_qp_ordered(H, a, A, x.copy(), max_iter=inner_max_iter)
+            # Never accept an infeasible QP direction, even when a numerical
+            # solve silently loses one of its active constraints.
+            if A.shape[0] and np.max(A @ _normalise(y_star)) > 1e-12:
+                _, y_star = _optimality_gap(L_f, x, w_arr, w_sum, A)
+            p = y_star - x
+        else:
+            p = fallback_vertex - x
+            fallback_vertex = None
 
         alpha = line_search(L_f, x, w_arr, w_sum, p, f, g, q.copy(), x_try.copy())
         x_new = np.maximum(x + alpha * p, 0.0)
@@ -570,11 +665,22 @@ def mix_sqp_ordered(
         n_iter = iteration + 1
 
         if step_converged and objective_converged:
-            converged = True
-            break
+            gap, vertex = _optimality_gap(L_f, x, w_arr, w_sum, A)
+            feasible = not A.shape[0] or np.max(A @ _normalise(x)) <= 1e-10
+            if feasible and gap <= atol + rtol:
+                converged = True
+                break
+            fallback_vertex = vertex
 
     pi = _normalise(x)
-    return pi, {"converged": converged, "n_iter": n_iter, "objective": float(f)}
+    # A max-iteration output is also consumed by the pipeline: feasibility
+    # must hold for every returned fit, not only converged ones.
+    if A.shape[0] and np.max(A @ pi) > 1e-10:
+        raise RuntimeError("Ordered mixture fit returned infeasible proportions")
+    if not converged:
+        gap, _ = _optimality_gap(L_f, pi, w_arr, w_sum, A)
+    f = compute_objective(L_f, pi, w_arr, w_sum, q)
+    return pi, {"converged": converged, "n_iter": n_iter, "objective": float(f), "optimality_gap": gap}
 
 
 __all__ = [

@@ -28,15 +28,11 @@ def _validate_columns(df: pl.DataFrame, required: set[str], label: str) -> None:
         raise ValueError(f"{label} is missing required columns: {', '.join(missing)}")
 
 
-def _truth_component_centers(truth_df: pl.DataFrame) -> list[float]:
-    centers_df = (
-        truth_df.group_by("component")
-        .agg(pl.col("sigma2").mean().alias("mean_sigma2"))
-        .sort("component")
-    )
+def _truth_component_centers(truth_df: pl.DataFrame) -> dict[int, float]:
+    centers_df = truth_df.group_by("component").agg(pl.col("sigma2").mean().alias("mean_sigma2")).sort("component")
     if centers_df.height == 0:
         raise ValueError("truth data has no components")
-    return [float(value) for value in centers_df.get_column("mean_sigma2").to_list()]
+    return {int(component): float(value) for component, value in centers_df.iter_rows()}
 
 
 def _build_comparison_dataframe(
@@ -46,8 +42,7 @@ def _build_comparison_dataframe(
     maf_min: float,
 ) -> tuple[pl.DataFrame, list[tuple[float, str]]]:
     truth_centers = _truth_component_centers(truth_df)
-    truth_centers_log = [math.log(max(value, 1e-300)) for value in truth_centers]
-    num_components = len(truth_centers)
+    truth_centers_log = {component: math.log(max(value, 1e-300)) for component, value in truth_centers.items()}
 
     maf_values = sorted(float(value) for value in infer_df.select("maf").unique().get_column("maf").to_list())
     maf_values = [maf for maf in maf_values if maf >= maf_min]
@@ -72,7 +67,7 @@ def _build_comparison_dataframe(
             continue
 
         infer_candidates: list[tuple[float, float]] = []
-        assigned = {idx: 0.0 for idx in range(num_components)}
+        assigned = dict.fromkeys(truth_centers, 0.0)
         total_assigned_mass = 0.0
 
         for row in infer_group.select(["var0", "value"]).iter_rows(named=True):
@@ -84,8 +79,7 @@ def _build_comparison_dataframe(
                 continue
             infer_candidates.append((var0, weight))
 
-            distances = [abs(math.log(var0) - center) for center in truth_centers_log]
-            component = min(range(num_components), key=lambda idx: distances[idx])
+            component = min(truth_centers_log, key=lambda idx: abs(math.log(var0) - truth_centers_log[idx]))
             assigned[component] += weight
             total_assigned_mass += weight
 
@@ -97,7 +91,7 @@ def _build_comparison_dataframe(
             skipped.append((maf, f"invalid inferred assigned mass={total_assigned_mass}"))
             continue
 
-        for component in range(num_components):
+        for component in truth_centers:
             simulated_proportion = truth_counts.get(component, 0) / n_truth
             inferred_raw = assigned[component]
             inferred_proportion = inferred_raw / total_assigned_mass

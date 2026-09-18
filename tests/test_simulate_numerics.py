@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mut_var.numerics import simulate_mixture_data
 from mut_var.types import RESULTS, SimulationConfig, Solution
+
+
+@pytest.mark.parametrize("seed", [-1, 1.5, True, None])
+def test_simulation_rejects_invalid_seed_with_status(seed):
+    solution = simulate_mixture_data(config=SimulationConfig(n_rows=10, seed=seed))
+    assert solution.result == RESULTS.invalid_input
+    assert "seed" in solution.stats["reason"]
 
 
 def _valid_config(**overrides) -> SimulationConfig:

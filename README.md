@@ -56,7 +56,7 @@ Canonical simulation pipeline:
 
 Canonical curve pipeline:
 
-- CLI: `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline] [--fit-only]`
+- CLI: `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline|invlog_linear|invlog_logit|invlog_sigmoid] [--fit-only]`
 - API: `mut_var.run_curve_pipeline(input_path, generate_plots=..., method=...)` -> method-neutral parameter `polars.DataFrame`
 
 Python inference example:
@@ -237,7 +237,7 @@ Curve fitting is split into:
 - Pure numerics: `mut_var.numerics.fit_curve_model` + `mut_var.numerics.evaluate_curve_fit`
 - Optional plotting adapter: `mut_var.plotting.curve_plots`
 - Orchestration pipeline: `mut_var.run_curve_pipeline`
-- Method selection at the workflow boundary: `sigmoid` (default), `isotonic`, or `mono_spline`
+- Method selection: `sigmoid` (default), `isotonic`, `mono_spline`, `invlog_linear`, `invlog_logit`, or `invlog_sigmoid`
 
 Behavior guarantees:
 
@@ -246,6 +246,41 @@ Behavior guarantees:
 - Plotting mode consumes precomputed fit outputs and only adds PNG side effects; fitted outputs
   remain unchanged.
 - Curve output is method-neutral and records `var0`, `method`, `param_name`, and `param_value`.
+
+The inverse-log methods fit each component independently using the same supplied MAF points
+and equal weight per observation (including repeated thresholds):
+
+- `invlog_linear`: $f(t)=a+b/\log(1/t)$, fitted by linear least squares without clipping predictions.
+- `invlog_logit`: $f(t)=\operatorname{expit}(a+b/\log(1/t))$, fitted by nonlinear least squares
+  on the probability scale. Exact zero/one observations are used directly. Only the initial
+  mean is clipped to $[10^{-9},1-10^{-9}]$ to initialize a finite logit.
+
+Both report `a` and `b` parameter rows and accept finite MAF values in $[0,1)$, with at least
+two distinct MAF points required for fitting. Evaluation at zero returns exactly `a` or
+`expit(a)`, respectively; no epsilon substitutes for zero. Component limits are not
+renormalized and need not sum to one. The initial mixture fits are unchanged.
+
+```bash
+mutvar curve results.tsv --method invlog_logit --fit-only
+```
+
+Python callers select either method with `fit_curve_model(..., method="invlog_linear")`
+or `run_curve_pipeline(..., method="invlog_logit", generate_plots=False)`.
+
+`invlog_sigmoid` adds a four-parameter alternative:
+$f(t)=L+(U-L)\operatorname{expit}(a+b/\log(1/t))$ with $0\le L\le U\le1$.
+It combines a logistic transition with an inverse-log approach to zero frequency,
+and reports `lower`, `upper`, `a`, and `b`. Its exact zero-frequency value is
+$L+(U-L)\operatorname{expit}(a)$, **not** $L$. At least four distinct MAF points
+are required. Fitting uses probability-scale least squares with four deterministic
+starts and a common residual scaling factor to handle very small component weights.
+Exact zero/one observations are accepted; constant observations return a flat fit
+with `lower == upper` and `a == b == 0`. Flat or incompletely observed transitions
+may not identify all four parameters, even when predictions fit well.
+
+```bash
+mutvar curve results.tsv --method invlog_sigmoid --fit-only
+```
 
 ## Performance Profiling Status
 

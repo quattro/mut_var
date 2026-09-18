@@ -139,6 +139,9 @@ def validate_maf_grid(lowest: Any, highest: Any, num_breaks: Any) -> None:
     if not isinstance(num_breaks, int):
         raise ValueError("num_breaks must be an integer with value >= 2.")
 
+    if not np.isfinite(lowest_val) or not np.isfinite(highest_val):
+        raise ValueError("maf grid bounds must be finite.")
+
     if lowest_val <= 0.0 or highest_val <= 0.0:
         raise ValueError("lowest and highest must both be > 0.")
     if highest_val > 0.5:

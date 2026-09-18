@@ -1,6 +1,6 @@
 # mut_var
 
-Last verified: 2026-04-29
+Last verified: 2026-09-16
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.
@@ -13,6 +13,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Contract types: `mut_var.types.RESULTS`, `mut_var.types.Solution`, `mut_var.pipelines.InferenceArrays`, `mut_var.InferenceConfig`, `mut_var.numerics.SimulationArrays`, `mut_var.SimulationConfig`, `mut_var.SimulationArtifacts`
 - **Guarantees**:
   - Boundary validation happens at ingress before numerics execute.
+  - CLI inference/curve file output is atomic and rejects aliases of the input path.
   - Inference pipeline/orchestration APIs accept path-based ingress plus explicit column overrides and return dataframe outputs for downstream writing/processing.
   - Numerics APIs return `Solution` objects and use `Solution.result` as the canonical status signal.
   - Contracts above numerics do not expose `Solution`; they normalize outputs to tabular/dataframe forms.
@@ -21,7 +22,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - `mutvar infer --constrain-spike` opts refit models into spike-component constraints; without the flag, refits do not constrain component 0.
   - Simulation pipeline APIs return dataframe artifacts (`truth`, `observed`, `metadata`) and keep file writes in CLI/orchestration shells.
   - Baseline/refit numerics use mix-SQP with full-batch objective updates only.
-  - Curve numerics support `sigmoid`, `isotonic`, and `mono_spline` methods, and the curve pipeline returns method-neutral parameter rows.
+  - Curve numerics support `sigmoid`, `isotonic`, `mono_spline`, `invlog_linear`, `invlog_logit`, and `invlog_sigmoid`; the curve pipeline returns method-neutral parameter rows. Inverse-log methods fit components independently, report `(a, b)` or `(lower, upper, a, b)`, and evaluate exact zero-frequency limits without renormalization.
   - Numerics hot path is Cython-compiled (`_core.pyx`) with BLAS acceleration.
   - Orchestration/input errors use built-in exception types (`ValueError`, `FileNotFoundError`, `RuntimeError`) instead of custom error hierarchies.
   - High-level workflow paths emit step-level progress logs (load/validate/run/prepare/write) through logging, not ad-hoc prints.
@@ -31,6 +32,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Input data includes required AF/BETA/SE fields (or explicit column overrides).
   - Domain constraints hold (`effect_allele_frequency` in `[0,1]`, `standard_error > 0`).
   - Grid constraints hold (`0 < lowest < highest <= 0.5`, `num_breaks >= 2`).
+  - Inference configurations require integer component/iteration counts, finite nonnegative tolerances, a filtering threshold in `[0,1]`, and a boolean spike constraint.
   - Simulation config constraints hold (mixture weights/scales align, weights sum to `1`, AF/SE model parameters stay in documented domains).
 
 ## Dependencies
@@ -67,7 +69,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 ## Commands
 - `pip install -e .`
 - `mutvar infer <sumstats.tsv> [--constrain-spike] [options]`
-- `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline] [--fit-only]`
+- `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline|invlog_linear|invlog_logit|invlog_sigmoid] [--fit-only]`
 - `mutvar simulate --output-prefix <prefix> [options]`
 - `ruff check src/mut_var tests`
 - `mypy src/mut_var tests`
