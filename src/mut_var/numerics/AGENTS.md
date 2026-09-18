@@ -70,4 +70,4 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `RESULTS.max_steps_reached` is intentionally treated as recoverable by numerics pipeline utilities.
 - Changing `Solution.stats` keys can break regression assertions that inspect diagnostics.
 - `simulate_mixture_data` callers must check `Solution.result` (not just `value`) before reading simulation arrays.
-- The Cython `_core` extension must be compiled before importing (`pip install -e .` or `python setup.py build_ext --inplace`).
+- The Cython `_core` extension must be compiled before importing (`uv sync --locked --extra dev` or `uv build` for distributions).

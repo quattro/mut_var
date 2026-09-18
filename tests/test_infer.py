@@ -238,9 +238,11 @@ def test_run_inference_pipeline_filters_baseline_components_before_refit(monkeyp
 
     assert captured_baseline_priors
     for prior in captured_baseline_priors:
+        assert prior is not None
         np.testing.assert_allclose(prior, np.array([10.0, 1.0, 1.0]))
     assert captured_refit_priors
     for prior in captured_refit_priors:
+        assert prior is not None
         np.testing.assert_allclose(prior, np.array([10.0, 1.0]))
     assert captured_refit_shapes
     assert all(shape[1] == 2 for shape in captured_refit_shapes)

@@ -2,7 +2,7 @@
 
 [![PyPI - Version](https://img.shields.io/pypi/v/mut-var.svg)](https://pypi.org/project/mut-var)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/mut-var.svg)](https://pypi.org/project/mut-var)
-[![CI](https://github.com/quattro/mut-var/actions/workflows/ci.yml/badge.svg)](https://github.com/quattro/mut-var/actions/workflows/ci.yml)
+[![CI](https://github.com/quattro/mut_var/actions/workflows/ci.yml/badge.svg)](https://github.com/quattro/mut_var/actions/workflows/ci.yml)
 
 -----
 
@@ -16,6 +16,18 @@
 ```console
 pip install mut-var
 ```
+
+## Development and documentation
+
+```bash
+uv sync --locked --extra dev --extra docs
+uv run --frozen pytest -p no:capture
+uv run --frozen zensical build --strict
+uv build
+```
+
+See [Contributing](docs/site/contributing.md) for lint/type checks, local docs
+preview, native wheel builds, and release configuration.
 
 ## Validation Contract
 
@@ -294,15 +306,17 @@ Performance profiling is currently out of scope for supported workflows in this 
 
 Required checks (local and CI must match):
 
-- `ruff check src/mut_var tests`
-- `mypy src/mut_var tests`
-- `pytest -p no:capture`
+- `uv run --frozen ruff check src tests scripts setup.py`
+- `uv run --frozen ruff format --check src tests scripts setup.py`
+- `uv run --frozen ty check src tests scripts`
+- `uv run --frozen pytest -p no:capture`
 
 Release-readiness quick check:
 
-- `ruff check src/mut_var tests`
-- `mypy src/mut_var tests`
-- `pytest -p no:capture`
+- `uv run --frozen ruff check src tests scripts setup.py`
+- `uv run --frozen ruff format --check src tests scripts setup.py`
+- `uv run --frozen ty check src tests scripts`
+- `uv run --frozen pytest -p no:capture`
 
 ## License
 

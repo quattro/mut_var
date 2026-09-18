@@ -9,7 +9,7 @@ pip install mut-var
 ## Local Editable Install
 
 ```console
-pip install -e .
+uv sync --locked --extra dev
 ```
 
 ## Quality Gates
@@ -17,7 +17,10 @@ pip install -e .
 Run the same checks used in CI:
 
 ```console
-ruff check src/mut_var tests
-mypy src/mut_var tests
-pytest -p no:capture
+uv run --frozen ruff check src tests scripts setup.py
+uv run --frozen ruff format --check src tests scripts setup.py
+uv run --frozen ty check src tests scripts
+uv run --frozen pytest -p no:capture
 ```
+
+See [Contributing](contributing.md) for documentation builds, package artifacts, and releases.

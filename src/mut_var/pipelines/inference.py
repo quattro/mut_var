@@ -241,7 +241,7 @@ def run_inference_pipeline(
         positive_maf = per_row_maf[per_row_maf > 0.0]
         if positive_maf.size == 0:
             raise ValueError(
-                "cannot auto-derive maf grid lower bound: all observations have MAF == 0. " "Pass an explicit `lowest`."
+                "cannot auto-derive maf grid lower bound: all observations have MAF == 0. Pass an explicit `lowest`."
             )
         resolved_lowest = float(np.min(positive_maf))
         workflow_log.info(

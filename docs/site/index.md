@@ -10,7 +10,7 @@
 
 ## Project Documentation Layout
 
-- Published MkDocs pages are stored in `docs/site/`.
+- Published Zensical pages are stored in `docs/site/`.
 - Design and implementation artifacts are kept under `docs/design-plans/` and `docs/reviews/`.
 
 ## Next Steps

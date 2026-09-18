@@ -1,9 +1,10 @@
+# pattern: Imperative Shell
 """
 setup.py — builds the numerics _core Cython extension for mut-var.
 
 Run:
-    pip install -e .            # editable install, builds extension in-place
-    python setup.py build_ext --inplace  # explicit in-place build
+    uv sync --extra dev         # editable install with isolated Cython build
+    uv build                    # sdist and platform-specific wheel
 """
 
 import numpy as np

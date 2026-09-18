@@ -260,7 +260,7 @@ def test_fit_curve_bounded_coefficients_and_predictions_for_decreasing_step_like
     left, right, _ = [float(x) for x in solution.value.payload[:3]]
     assert 0.0 <= left <= right <= 1.0
     midpoint = float(solution.value.payload[3])
-    positive_maf = maf[maf > 0.0]
+    positive_maf = np.asarray(maf[maf > 0.0], dtype=float)
     assert float(positive_maf.min()) <= midpoint <= float(positive_maf.max())
 
     fitted = evaluate_curve_fit(solution.value, maf)
@@ -308,7 +308,7 @@ def test_fit_curve_bounded_coefficients_and_predictions_for_increasing_step_like
     left, right, _ = [float(x) for x in solution.value.payload[:3]]
     assert 0.0 <= left <= right <= 1.0
     midpoint = float(solution.value.payload[3])
-    positive_maf = maf[maf > 0.0]
+    positive_maf = np.asarray(maf[maf > 0.0], dtype=float)
     assert float(positive_maf.min()) <= midpoint <= float(positive_maf.max())
 
     fitted = evaluate_curve_fit(solution.value, maf)
@@ -484,7 +484,7 @@ def test_fit_curve_isotonic_diagnostics_are_sample_order_invariant():
     # regardless of input ordering.
     maf_sorted = np.asarray([0.001, 0.002, 0.005, 0.01])
     value_sorted = np.asarray([0.21, 0.18, 0.19, 0.15])
-    perm = np.asarray([2, 0, 3, 1])
+    perm = np.asarray([2, 0, 3, 1], dtype=int)
 
     sorted_solution = fit_curve_model(maf_sorted, value_sorted, method="isotonic")
     shuffled_solution = fit_curve_model(maf_sorted[perm], value_sorted[perm], method="isotonic")

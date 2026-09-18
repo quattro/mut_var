@@ -27,6 +27,7 @@ def test_invalid_config_rejected_before_inference(field, value):
     config = InferenceConfig(3)._replace(**{field: value})
     solution = prepare_fit_state(np.array([0.1]), np.array([1.0]), config)
     assert solution.result is RESULTS.invalid_input
+    assert solution.stats is not None
     assert field in solution.stats["reason"]
     with pytest.raises(ValueError, match=field):
         run_inference_pipeline("missing-input.tsv", config=config)

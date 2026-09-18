@@ -2,7 +2,7 @@
 src/mut_var/_version.py
 
 data/
-site/
+/site/
 
 tmp
 tmp.*
@@ -58,7 +58,6 @@ coverage.xml
 build/*
 dist/*
 sdist/*
-docs/api/*
 docs/_rst/*
 docs/_build/*
 cover/*

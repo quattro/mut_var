@@ -33,6 +33,7 @@ def test_invlog_parameter_recovery(method, noise, slope):
     assert solution.result == RESULTS.successful
     assert solution.value.method == method
     np.testing.assert_allclose(solution.value.payload, coef, atol=0.01 if noise else 1e-6)
+    assert solution.stats is not None
     assert solution.stats["rmse"] < 0.003
 
 
