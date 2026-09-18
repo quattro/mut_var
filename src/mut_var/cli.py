@@ -6,7 +6,10 @@ import logging
 import sys
 
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Sequence, TextIO
+
+import polars as pl
 
 from mut_var.pipelines import (
     run_curve_pipeline,
@@ -57,7 +60,7 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     io_group.add_argument(
         "-o",
         "--output",
-        type=ap.FileType("w"),
+        type=Path,
         default=sys.stdout,
         help="Output destination for inference TSV results.",
     )
@@ -100,13 +103,13 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     model_group.add_argument(
         "--atol",
         type=float,
-        default=1e-3,
+        default=1e-6,
         help="Absolute convergence tolerance for mix-SQP outer iterations.",
     )
     model_group.add_argument(
         "--rtol",
         type=float,
-        default=1e-3,
+        default=1e-6,
         help="Relative convergence tolerance for mix-SQP outer iterations.",
     )
     model_group.add_argument(
@@ -153,7 +156,7 @@ def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     io_group.add_argument(
         "-o",
         "--output",
-        type=ap.FileType("w"),
+        type=Path,
         default=sys.stdout,
         help="Output destination for curve fit TSV.",
     )
@@ -162,7 +165,7 @@ def _build_curve_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     curve_group.add_argument(
         "--method",
         type=str,
-        choices=("sigmoid", "isotonic", "mono_spline"),
+        choices=("sigmoid", "isotonic", "mono_spline", "invlog_linear", "invlog_logit", "invlog_sigmoid"),
         default="sigmoid",
         help="Curve fitting method.",
     )
@@ -287,13 +290,42 @@ def build_parser() -> ap.ArgumentParser:
     return parser
 
 
-def _output_target(output_stream: TextIO) -> str:
+def _output_target(output_stream: str | Path | TextIO) -> str:
+    if isinstance(output_stream, (str, Path)):
+        return "stdout" if str(output_stream) == "-" else str(output_stream)
     if output_stream is sys.stdout:
         return "stdout"
     name = getattr(output_stream, "name", None)
     if isinstance(name, str) and name.strip():
         return name
     return "stream"
+
+
+def _validate_output_path(input_path: str | Path, output: str | Path | TextIO) -> None:
+    if not isinstance(output, (str, Path)) or str(output) == "-":
+        return
+    source, target = Path(input_path), Path(output)
+    if source.resolve() == target.resolve() or (source.exists() and target.exists() and source.samefile(target)):
+        raise ValueError("Input and output must not refer to the same file.")
+
+
+def _write_output(frame: pl.DataFrame, output: str | Path | TextIO) -> None:
+    if not isinstance(output, (str, Path)):
+        frame.write_csv(output, separator="\t")
+        return
+    if str(output) == "-":
+        frame.write_csv(sys.stdout, separator="\t")
+        return
+    target = Path(output).resolve()
+    temporary = None
+    try:
+        with NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            frame.write_csv(stream.file, separator="\t")
+        temporary.replace(target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _parse_comma_floats(raw: str, field: str) -> tuple[float, ...]:
@@ -322,8 +354,11 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     **Returns:**
 
     - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
+      File output is replaced only after successful inference and serialization;
+      an output path referring to the input file is rejected.
     """
     try:
+        _validate_output_path(args.sumstats, args.output)
         log.info("infer: loading data from '%s'", args.sumstats)
         log.info("infer: starting inference pipeline")
         result_df = run_inference_pipeline(
@@ -345,16 +380,16 @@ def run_infer_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             log=log,
         )
         log.info("infer: inference pipeline completed")
+        log.info("infer: writing output to '%s'", _output_target(args.output))
+        _write_output(result_df, args.output)
+        log.info("infer: finished writing output")
     except (ValueError, FileNotFoundError) as exc:
         log.error(str(exc))
         return 2
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         log.error(str(exc))
         return 1
 
-    log.info("infer: writing output to '%s'", _output_target(args.output))
-    result_df.write_csv(args.output, separator="\t")
-    log.info("infer: finished writing output")
     return 0
 
 
@@ -369,8 +404,11 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
     **Returns:**
 
     - Exit code (`0` success, `2` usage/input errors, `1` runtime failures).
+      File output is replaced only after successful fitting and serialization;
+      an output path referring to the input file is rejected.
     """
     try:
+        _validate_output_path(args.data, args.output)
         log.info("curve: starting curve pipeline")
         fit_df = run_curve_pipeline(
             args.data,
@@ -379,16 +417,16 @@ def run_curve_cli_pipeline(args: ap.Namespace, log: logging.Logger) -> int:
             log=log,
         )
         log.info("curve: curve pipeline completed")
+        log.info("curve: writing output to '%s'", _output_target(args.output))
+        _write_output(fit_df, args.output)
+        log.info("curve: finished writing output")
     except (ValueError, FileNotFoundError) as exc:
         log.error(str(exc))
         return 2
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         log.error(str(exc))
         return 1
 
-    log.info("curve: writing output to '%s'", _output_target(args.output))
-    fit_df.write_csv(args.output, separator="\t")
-    log.info("curve: finished writing output")
     return 0
 
 

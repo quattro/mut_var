@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+# pattern: Imperative Shell
 import logging
 import shutil
 import sys
 
 from pathlib import Path
+from typing import cast, get_args
 
 import numpy as np
 import polars as pl
+import pytest
 
 from scipy.special import expit
 
-from mut_var.numerics.curve_fit import CurveFitResult, evaluate_curve_fit, fit_curve_model
+from mut_var.numerics.curve_fit import CurveFitResult, CurveMethod, evaluate_curve_fit, fit_curve_model
 from mut_var.pipelines import run_curve_pipeline
 from mut_var.types import RESULTS, Solution
 
@@ -540,3 +543,61 @@ def test_curve_pipeline_supports_mono_spline_method(tmp_path):
     assert fit_df.height > 0
     assert set(fit_df["method"].to_list()) == {"mono_spline"}
     assert bool(np.isfinite(_fit_matrix(fit_df)).all())
+
+
+@pytest.mark.parametrize("method", get_args(CurveMethod))
+@pytest.mark.parametrize(
+    "maf,value",
+    [
+        ([0.001, np.nan], [0.1, 0.2]),
+        ([-0.1, 0.01], [0.1, 0.2]),
+        ([0.001, 1.0], [0.1, 0.2]),
+        ([0.001, 0.01], [0.1, np.inf]),
+        ([0.001, 0.01], [0.1]),
+        ([[0.001, 0.01]], [[0.1, 0.2]]),
+        (["bad", 0.01], [0.1, 0.2]),
+    ],
+)
+def test_curve_invalid_arrays_return_status(method, maf, value):
+    solution = fit_curve_model(np.asarray(maf), np.asarray(value), method=method)
+    assert solution.result == RESULTS.invalid_input
+    assert solution.value is None
+
+
+@pytest.mark.parametrize("method", get_args(CurveMethod))
+def test_curve_empty_arrays_return_status(method):
+    solution = fit_curve_model(np.array([]), np.array([]), method=method)
+    assert solution.result == RESULTS.empty_subset
+
+
+def test_unknown_curve_method_is_rejected(tmp_path):
+    unknown = cast(CurveMethod, "invlog_sigmod")
+    solution = fit_curve_model(np.array([0.001, 0.01]), np.array([0.1, 0.2]), method=unknown)
+    assert solution.result == RESULTS.invalid_input
+    with pytest.raises(ValueError, match="method"):
+        evaluate_curve_fit(CurveFitResult(unknown, np.array([0.1, 0.2])), np.array([0.01]))
+    path = tmp_path / "empty.tsv"
+    path.write_text("maf\tvalue\tvar0\n")
+    with pytest.raises(ValueError, match="method"):
+        run_curve_pipeline(str(path), method=unknown, generate_plots=False)
+
+
+@pytest.mark.parametrize(
+    "column,bad",
+    [
+        ("maf", float("nan")),
+        ("maf", -0.1),
+        ("value", None),
+        ("value", -0.1),
+        ("var0", None),
+        ("var0", float("inf")),
+        ("var0", -1.0),
+    ],
+)
+def test_curve_pipeline_rejects_invalid_content(tmp_path, column, bad):
+    path = tmp_path / "invalid.tsv"
+    data = {"maf": [0.001, 0.002, 0.003], "value": [0.1, 0.2, 0.3], "var0": [0.0, 0.0, 0.0]}
+    data[column][2] = bad
+    pl.DataFrame(data).write_csv(path, separator="\t")
+    with pytest.raises(ValueError):
+        run_curve_pipeline(str(path), method="isotonic", generate_plots=False)

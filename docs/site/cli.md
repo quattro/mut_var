@@ -13,6 +13,10 @@ Input and output:
 - `sumstats` input path
 - `-o, --output` output TSV path (defaults to stdout)
 
+File output is written atomically after successful processing. The output must
+not refer to the input file, including through a symlink or hardlink. These
+rules also apply to `curve` output.
+
 Column overrides:
 
 - `--af-col` (default: `effect_allele_frequency`)
@@ -24,11 +28,15 @@ Model and optimizer controls:
 - `-k, --num-clusters`
 - `-m, --max-iter`
 - `-f, --filter`
-- `--tol`
+- `--atol` and `--rtol` (each defaults to `1e-6`; finite, nonnegative solver tolerances)
+- `--constrain-spike` (opt into spike constraints during refitting)
+
+Cluster counts must be integers at least 2, iteration limits positive integers,
+and the filtering threshold finite and within `[0, 1]`.
 
 MAF grid controls:
 
-- `--lowest`
+- `--lowest` (defaults to the minimum positive observed MAF)
 - `--highest`
 - `--num-breaks`
 
@@ -40,7 +48,8 @@ Logging:
 
 - `data` input TSV from `mutvar infer`
 - `-o, --output` output TSV path (defaults to stdout)
-- `--method` curve fitting method (`sigmoid` default, `isotonic` alternative)
+- `--method`: `sigmoid` (default), `isotonic`, `mono_spline`, `invlog_linear`,
+  `invlog_logit`, or `invlog_sigmoid`
 - `--fit-only` skips PNG generation
 
 ## `simulate` Options
@@ -53,7 +62,7 @@ Output:
 Core:
 
 - `--n-rows`
-- `--seed`
+- `--seed` (nonnegative integer)
 
 Mixture:
 

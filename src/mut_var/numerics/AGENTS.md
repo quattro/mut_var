@@ -1,6 +1,6 @@
 # Numerics Domain
 
-Last verified: 2026-04-29
+Last verified: 2026-09-18
 
 ## Purpose
 Provide array-only numerical kernels for mutation-variance estimation with explicit solver status channels.
@@ -20,13 +20,15 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
   - Refit optimization consumes precomputed likelihood matrices and uses mix-SQP-ordered with a homogeneous constraint matrix `A π ≤ 0`; `InferenceConfig.constrain_spike=True` includes the null-component floor and spike-vs-signal ordering, while the default only constrains signal-component adjacent ratios.
   - Optional `verbose` callable `(step, obj) -> None` emits per-step diagnostics.
   - Recoverable statuses are merged via `merge_recoverable_results`; `max_steps_reached` propagates without raising.
-  - Curve fitting supports `sigmoid`, `isotonic`, and `mono_spline` methods through a method-neutral fit result.
+  - Curve fitting supports `sigmoid`, `isotonic`, `mono_spline`, `invlog_linear`, `invlog_logit`, and `invlog_sigmoid` through a method-neutral fit result.
+  - All curve methods validate finite, aligned inputs and MAF in `[0,1)`; bounded methods require observations in `[0,1]`. Unknown methods are rejected explicitly.
   - `simulate_mixture_data` validates simulation domains before random draws and returns `SimulationArrays` payloads on `RESULTS.successful`.
 - **Expects**:
   - Array-like inputs only (NumPy-compatible), not dataframe objects.
   - `beta_hat` and `s2` are finite 1D arrays with equal length and strictly positive `s2`.
   - `maf_masks` is a 2D boolean-aligned mask over observations.
   - Simulation configs provide aligned mixture parameter lengths, valid AF generator domains, and positive SE controls.
+  - Simulation seeds are nonnegative integers. Invalid seeds return `RESULTS.invalid_input` before random draws.
 
 ## Dependencies
 - **Uses**: `numpy`, `scipy`, `mut_var.types`, `mut_var.numerics._core` (Cython), `mut_var.numerics.mixsqp`.
@@ -44,9 +46,14 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `simulate_mixture_data` uses `numpy.random.default_rng(config.seed)` for reproducibility.
 - Sigmoid curve fitting uses `scipy.optimize.least_squares(method='lm')`; isotonic fitting uses weighted pooled-adjacent-violators regression on sorted unique MAF support; `mono_spline` fitting runs the same isotonic regression on the unique support and then interpolates the resulting monotone knot levels with `scipy.interpolate.PchipInterpolator` in log-MAF space.
 - JAX, Equinox, and Optimistix have been fully removed from the numerics stack.
+- Two-parameter inverse-log curves store `(a, b)` and fit each component independently with equal observation weights: linear least squares for `invlog_linear`, probability-scale nonlinear least squares for `invlog_logit` (including exact zero/one observations). No clipping of linear predictions or cross-component normalization. MAF must be finite in `[0,1)`, with at least two distinct fitting points; zero evaluates exactly to `a` or `expit(a)`.
 
 ## Invariants
+
+- `invlog_sigmoid` stores `(lower, upper, a, b)`, requires four distinct MAF points, fits bounded levels by probability-scale least squares, and evaluates zero as `lower + (upper - lower) * expit(a)`. Constant observations use equal levels and `a=b=0`.
+- Inference configuration, CLI, and direct mix-SQP calls default to `atol=rtol=1e-6`; explicit overrides remain supported.
 - `Params.pi` sums to 1.0 (normalized) after mix-SQP convergence.
+- Ordered refits preserve zero signal-component weights and check scaled feasibility even for recoverable iteration-limit outputs. Solver convergence additionally requires a feasible-direction optimality gap within tolerance.
 - `FitState.likelihood_matrix` is aligned to the full observation set and reused across baseline/refit stages.
 - Solver outputs always report one canonical status: `successful`, `invalid_input`, `empty_subset`, `nonfinite_objective`, or `max_steps_reached`.
 - Successful simulation outputs have finite arrays with strictly positive `sigma2`.
@@ -56,7 +63,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 - `src/mut_var/numerics/mixture_fit.py` - fit-state preparation, baseline fitting, and likelihood-driven refit kernels.
 - `src/mut_var/numerics/mixsqp.py` - mix-SQP outer loop, active-set QP solvers, refit constraint matrix construction, and recoverable-status helpers.
 - `src/mut_var/numerics/_core.pyx` - Cython BLAS hot path.
-- `src/mut_var/numerics/curve_fit.py` - method-neutral curve fitting/evaluation kernels for sigmoid, isotonic, and mono_spline fits.
+- `src/mut_var/numerics/curve_fit.py` - method-neutral curve fitting/evaluation kernels for sigmoid, isotonic, mono_spline, and inverse-log fits.
 - `src/mut_var/numerics/simulate.py` - mixture simulation validation and sampling kernel.
 
 ## Gotchas

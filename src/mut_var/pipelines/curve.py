@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from pathlib import Path
+from typing import get_args
 
 import numpy as np
 import polars as pl
@@ -20,8 +21,14 @@ def _to_scalar_var(variance) -> float:
 
 
 def _parameter_rows(var0: float, fit: CurveFitResult) -> list[dict[str, str | float]]:
-    if fit.method == "sigmoid":
-        names = ("left", "right", "rate", "midpoint")
+    if fit.method in ("sigmoid", "invlog_linear", "invlog_logit", "invlog_sigmoid"):
+        names: tuple[str, ...]
+        if fit.method == "sigmoid":
+            names = ("left", "right", "rate", "midpoint")
+        elif fit.method == "invlog_sigmoid":
+            names = ("lower", "upper", "a", "b")
+        else:
+            names = ("a", "b")
         values = np.asarray(fit.payload, dtype=float)
         return [
             {
@@ -101,7 +108,12 @@ def run_curve_pipeline(
 
     - `input_path`: Tab-delimited input path with `maf`, `value`, and `var0` columns.
     - `generate_plots`: When `True`, render one PNG per `var0` group.
-    - `method`: Curve method to apply (`sigmoid` or `isotonic`).
+    - `method`: `sigmoid`, `isotonic`, `mono_spline`, `invlog_linear`, `invlog_logit`,
+      or `invlog_sigmoid`.
+      Two-parameter inverse-log methods fit each component independently and report `a`, `b`;
+      zero-frequency limits are `a` (linear) or `expit(a)` (logit), without renormalization.
+      `invlog_sigmoid` reports `lower`, `upper`, `a`, `b` and has zero-frequency
+      limit `lower + (upper - lower) * expit(a)`.
     - `log`: Optional logger for workflow diagnostics.
 
     **Returns:**
@@ -111,9 +123,13 @@ def run_curve_pipeline(
     **Raises:**
 
     - `FileNotFoundError`: Input path does not exist.
-    - `ValueError`: Input schema/content invalid or invalid-fit status.
+    - `ValueError`: Unknown method, invalid-fit status, or invalid input. Required
+      columns must be finite and non-null, with MAF in $[0,1)$, nonnegative
+      `var0`, and values in $[0,1]$ except for `invlog_linear`.
     - `RuntimeError`: Non-recoverable fitting failure.
     """
+    if method not in get_args(CurveMethod):
+        raise ValueError(f"unknown curve method: {method!r}")
     workflow_log = logging.getLogger(__name__) if log is None else log
 
     workflow_log.info("curve pipeline: loading input data from '%s'", input_path)
@@ -131,6 +147,19 @@ def run_curve_pipeline(
     missing = required.difference(df.columns)
     if missing:
         raise ValueError(f"missing required curve columns: {', '.join(sorted(missing))}")
+    try:
+        df = df.with_columns(pl.col("maf", "value", "var0").cast(pl.Float64))
+    except (pl.exceptions.PolarsError, TypeError, ValueError) as exc:
+        raise ValueError(f"curve columns must be numeric: {exc}") from exc
+    for column in ("maf", "value", "var0"):
+        if df[column].null_count() or not df[column].is_finite().all():
+            raise ValueError(f"curve column '{column}' must contain finite, non-null values")
+    if ((df["maf"] < 0) | (df["maf"] >= 1)).any():
+        raise ValueError("curve MAF values must be within [0, 1)")
+    if (df["var0"] < 0).any():
+        raise ValueError("curve variances must be nonnegative")
+    if method != "invlog_linear" and ((df["value"] < 0) | (df["value"] > 1)).any():
+        raise ValueError("bounded curve observations must be within [0, 1]")
     workflow_log.info("curve pipeline: input validation complete")
     workflow_log.info("curve pipeline: using method '%s'", method)
 

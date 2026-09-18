@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+# pattern: Imperative Shell
 import argparse
 import json
+import math
 import sys
 
 from pathlib import Path
@@ -11,12 +13,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from mut_var.contracts import RESULTS
-
+from mut_var.types import RESULTS  # noqa: E402
 
 REQUIRED_FAILURE_STATES = {
-    RESULTS[RESULTS.empty_subset],
-    RESULTS[RESULTS.nonfinite_objective],
+    RESULTS.empty_subset.value,
+    RESULTS.nonfinite_objective.value,
 }
 
 
@@ -34,26 +35,23 @@ def evaluate_release_gate_payload(payload: dict[str, object]) -> tuple[bool, lis
     try:
         improvement_value = float(improvement)
         threshold_value = float(threshold)
-    except (TypeError, ValueError):
-        errors.append("Comparison metrics must include numeric improvement_percent and threshold_percent.")
+        if not math.isfinite(improvement_value) or not math.isfinite(threshold_value):
+            raise ValueError("non-finite comparison metric")
+    except (TypeError, ValueError, OverflowError):
+        errors.append("Comparison metrics must include finite numeric improvement_percent and threshold_percent.")
         improvement_value = 0.0
         threshold_value = 20.0
 
     if improvement_value < threshold_value:
-        errors.append(
-            f"Steady-state improvement {improvement_value:.3f}% is below required {threshold_value:.3f}%."
-        )
+        errors.append(f"Steady-state improvement {improvement_value:.3f}% is below required {threshold_value:.3f}%.")
 
     if passed is not True:
         errors.append("Benchmark report marks comparison.passed as false.")
 
-    available_states = set(RESULTS._index_to_message)
+    available_states = {result.value for result in RESULTS}
     missing_states = REQUIRED_FAILURE_STATES.difference(available_states)
     if missing_states:
-        errors.append(
-            "Failure status catalog is missing required states: "
-            + ", ".join(sorted(missing_states))
-        )
+        errors.append("Failure status catalog is missing required states: " + ", ".join(sorted(missing_states)))
 
     return (len(errors) == 0), errors
 
@@ -84,15 +82,12 @@ def main(argv: list[str] | None = None) -> int:
     print("Release Gate Criteria")
     print(f"- Report path exists: {args.report.exists()}")
 
-    if payload and isinstance(payload.get("comparison"), dict):
-        comparison = payload["comparison"]
+    comparison = payload.get("comparison") if payload else None
+    if isinstance(comparison, dict):
         print(f"- Improvement percent: {comparison.get('improvement_percent')}")
         print(f"- Threshold percent: {comparison.get('threshold_percent')}")
         print(f"- Report passed flag: {comparison.get('passed')}")
-    print(
-        "- Required failure states present: "
-        + ", ".join(sorted(REQUIRED_FAILURE_STATES))
-    )
+    print("- Required failure states present: " + ", ".join(sorted(REQUIRED_FAILURE_STATES)))
 
     if passed:
         print("Release gate decision: PASS")
