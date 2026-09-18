@@ -445,6 +445,9 @@ def _fit_invlog_sigmoid(z: np.ndarray, value: np.ndarray) -> Solution:
             RESULTS.successful,
             stats={"n_obs": n_obs, "epoch_count": 0, "converged": True, **_fit_diagnostics(value, value)},
         )
+    # Center inverse-log frequency and scale its largest absolute deviation to
+    # one. The observed x range then spans between one and two units, giving
+    # the initial slopes below a comparable meaning across different MAF grids.
     center = float(np.mean(z))
     scale = float(np.max(np.abs(z - center)))
     x = (z - center) / scale
@@ -483,8 +486,17 @@ def _fit_invlog_sigmoid(z: np.ndarray, value: np.ndarray) -> Solution:
         )
 
     try:
-        # Deterministic starts allow either direction and both broad and sharp
-        # transitions without imposing a sign constraint on the fitted slope.
+        # These deterministic slopes are heuristic starting guesses, not values
+        # derived from population genetics or selected by systematic tuning.
+        # For expit(slope * (x - middle)), the 10%-90% transition width is
+        # 2 * log(9) / abs(slope): about 1.10 x units for abs(slope)=4 and
+        # 0.27 for abs(slope)=16. On the scaled predictor these cover broad and
+        # sharper transitions; both signs allow increasing or decreasing curves.
+        # The initial intercept -slope * middle centers each transition near
+        # the observed midpoint. Multiple starts reduce sensitivity to local
+        # minima and saturated regions with small gradients, but do not
+        # guarantee a global optimum. Every run optimizes all four parameters
+        # freely (including slope); we retain the lowest-cost fit below.
         candidates = [
             sco.least_squares(
                 residuals,

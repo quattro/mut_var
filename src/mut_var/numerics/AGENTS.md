@@ -1,6 +1,6 @@
 # Numerics Domain
 
-Last verified: 2026-09-16
+Last verified: 2026-09-18
 
 ## Purpose
 Provide array-only numerical kernels for mutation-variance estimation with explicit solver status channels.
@@ -51,6 +51,7 @@ Provide array-only numerical kernels for mutation-variance estimation with expli
 ## Invariants
 
 - `invlog_sigmoid` stores `(lower, upper, a, b)`, requires four distinct MAF points, fits bounded levels by probability-scale least squares, and evaluates zero as `lower + (upper - lower) * expit(a)`. Constant observations use equal levels and `a=b=0`.
+- Inference configuration, CLI, and direct mix-SQP calls default to `atol=rtol=1e-6`; explicit overrides remain supported.
 - `Params.pi` sums to 1.0 (normalized) after mix-SQP convergence.
 - Ordered refits preserve zero signal-component weights and check scaled feasibility even for recoverable iteration-limit outputs. Solver convergence additionally requires a feasible-direction optimality gap within tolerance.
 - `FitState.likelihood_matrix` is aligned to the full observation set and reused across baseline/refit stages.

@@ -103,13 +103,13 @@ def _build_infer_subcommand(subparsers: ap._SubParsersAction[ap.ArgumentParser])
     model_group.add_argument(
         "--atol",
         type=float,
-        default=1e-3,
+        default=1e-6,
         help="Absolute convergence tolerance for mix-SQP outer iterations.",
     )
     model_group.add_argument(
         "--rtol",
         type=float,
-        default=1e-3,
+        default=1e-6,
         help="Relative convergence tolerance for mix-SQP outer iterations.",
     )
     model_group.add_argument(

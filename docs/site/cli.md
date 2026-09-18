@@ -28,7 +28,7 @@ Model and optimizer controls:
 - `-k, --num-clusters`
 - `-m, --max-iter`
 - `-f, --filter`
-- `--atol` and `--rtol` (finite, nonnegative solver tolerances)
+- `--atol` and `--rtol` (each defaults to `1e-6`; finite, nonnegative solver tolerances)
 - `--constrain-spike` (opt into spike constraints during refitting)
 
 Cluster counts must be integers at least 2, iteration limits positive integers,

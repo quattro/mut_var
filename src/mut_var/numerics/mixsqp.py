@@ -457,8 +457,8 @@ def mix_sqp(
     x0: np.ndarray | None = None,
     w: np.ndarray | None = None,
     max_iter: int = 100,
-    atol: float = 1e-3,
-    rtol: float = 1e-3,
+    atol: float = 1e-6,
+    rtol: float = 1e-6,
     inner_max_iter: int = 200,
     verbose: bool | Callable[..., Any] = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
@@ -570,8 +570,8 @@ def mix_sqp_ordered(
     x0: np.ndarray | None = None,
     w: np.ndarray | None = None,
     max_iter: int = 100,
-    atol: float = 1e-3,
-    rtol: float = 1e-3,
+    atol: float = 1e-6,
+    rtol: float = 1e-6,
     inner_max_iter: int = 200,
     verbose: bool | Callable[..., Any] = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
