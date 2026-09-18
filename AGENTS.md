@@ -1,6 +1,6 @@
 # mut_var
 
-Last verified: 2026-09-16
+Last verified: 2026-09-18
 
 ## Purpose
 Provide reproducible mutation-variance inference pipelines with explicit failure states for both CLI and Python callers.
@@ -36,6 +36,10 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
   - Simulation config constraints hold (mixture weights/scales align, weights sum to `1`, AF/SE model parameters stay in documented domains).
 
 ## Dependencies
+- Development and docs environments are locked in `uv.lock`; update it with `uv lock` after changing `pyproject.toml`.
+- Zensical uses `zensical.toml`, tracked `docs/site/` pages, and `docs_theme/` overrides; only the root `/site/` output is ignored.
+- setuptools/setuptools-scm remain the Cython build and version backend, invoked through `uv build`.
+- CI tests Python 3.10–3.14 and macOS; release wheels use cibuildwheel for Linux x86_64 and macOS Intel/ARM. Publishing requires configured PyPI and GitHub Pages environments.
 - **Uses**: `numpy`, `scipy`, `polars`, `matplotlib` (plotting path), `Cython` (build-time).
 - **Used by**: CLI users and Python integrations via package-root imports.
 - **Boundary**:
@@ -62,18 +66,22 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - `InferenceConfig` no longer includes a `batch_size` field.
 - `InferenceConfig.constrain_spike` defaults to `False`; CLI callers must pass `--constrain-spike` to enable spike constraints.
 - Canonical quality gates remain aligned between local and CI:
-  - `ruff check src/mut_var tests`
-  - `mypy src/mut_var tests`
-  - `pytest -p no:capture`
+  - `uv run --frozen ruff check src tests scripts setup.py`
+  - `uv run --frozen ruff format --check src tests scripts setup.py`
+  - `uv run --frozen ty check src tests scripts`
+  - `uv run --frozen pytest -p no:capture`
 
 ## Commands
-- `pip install -e .`
+- `uv build` (setuptools/Cython wheel and sdist)
+- `uv run --frozen zensical build --strict`
+- `uv run --frozen ruff format --check src tests scripts setup.py`
+- `uv sync --locked --extra dev --extra docs`
 - `mutvar infer <sumstats.tsv> [--constrain-spike] [options]`
 - `mutvar curve <mutvar-output.tsv> [--method sigmoid|isotonic|mono_spline|invlog_linear|invlog_logit|invlog_sigmoid] [--fit-only]`
 - `mutvar simulate --output-prefix <prefix> [options]`
-- `ruff check src/mut_var tests`
-- `mypy src/mut_var tests`
-- `pytest -p no:capture`
+- `uv run --frozen ruff check src tests scripts setup.py`
+- `uv run --frozen ty check src tests scripts`
+- `uv run --frozen pytest -p no:capture`
 
 ## Docstrings
 - Use raw docstrings (`r"""..."""`) on public CLI/pipeline/numerics entrypoints.
@@ -83,7 +91,7 @@ Provide reproducible mutation-variance inference pipelines with explicit failure
 - Update docstrings in the same patch when signatures, status semantics, or side effects change.
 
 ## Docs Markdown
-- Use MkDocs admonitions when they improve clarity in generated docs (for example: `!!! info`, `!!! note`, `!!! warning`, `!!! tip`).
+- Use Zensical-compatible Markdown admonitions when they improve clarity in generated docs (for example: `!!! info`, `!!! note`, `!!! warning`, `!!! tip`).
 - Keep admonition titles/content concise and technically actionable; avoid decorative callouts.
 
 ## Project Structure

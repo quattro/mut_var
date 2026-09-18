@@ -7,7 +7,7 @@ import sys
 
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Sequence, TextIO
+from typing import Any, cast, Sequence, TextIO
 
 import polars as pl
 
@@ -45,7 +45,7 @@ def get_logger(name: str) -> logging.Logger:
     else:
         for handler in logger.handlers:
             if isinstance(handler, logging.StreamHandler):
-                handler.setStream(sys.stderr)
+                cast("logging.StreamHandler[Any]", handler).setStream(sys.stderr)
     return logger
 
 

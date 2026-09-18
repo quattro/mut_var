@@ -11,6 +11,7 @@ from mut_var.types import RESULTS, SimulationConfig, Solution
 def test_simulation_rejects_invalid_seed_with_status(seed):
     solution = simulate_mixture_data(config=SimulationConfig(n_rows=10, seed=seed))
     assert solution.result == RESULTS.invalid_input
+    assert solution.stats is not None
     assert "seed" in solution.stats["reason"]
 
 

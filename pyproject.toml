@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mut-var"
 dynamic = ["version"]
-description = ''
+description = "Mutation-variance inference and mixture-weight curve fitting"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -20,6 +20,8 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Cython",
   "Programming Language :: Python :: Implementation :: CPython",
 ]
@@ -34,18 +36,21 @@ dependencies = [
 mutvar = "mut_var.cli:run_cli"
 
 [project.urls]
-Documentation = "https://github.com/quattro/mut-var#readme"
-Issues = "https://github.com/quattro/mut-var/issues"
-Source = "https://github.com/quattro/mut-var"
+Documentation = "https://quattro.github.io/mut_var/"
+Issues = "https://github.com/quattro/mut_var/issues"
+Source = "https://github.com/quattro/mut_var"
 
 [project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.15",
+    "ty>=0.0.44",
+    "pre-commit>=4",
+]
 docs = [
-  "hippogriffe==0.2.2",
-  "mkdocs==1.6.1",
-  "mkdocs-include-exclude-files==0.1.0",
-  "mkdocs-material==9.7.1",
-  "mkdocstrings[python]==2.0.2",
-  "pymdown-extensions==10.21"
+    "mkdocstrings-python>=1.12",
+    "mkdocstrings>=0.29",
+    "zensical>=0.0.37",
 ]
 
 [tool.setuptools_scm]
@@ -57,7 +62,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "mut_var" = []
-"mut_var.numerics" = ["*.pyx", "*.pxd"]
+"mut_var.numerics" = ["*.pyx", "*.pxd", "*.pyi"]
 
 [tool.coverage.run]
 source_pkgs = ["mut_var", "tests"]
@@ -96,7 +101,6 @@ ignore = [
     # Ignore complexity
     "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
 ]
-ignore-init-module-imports = true
 
 [tool.ruff.lint.isort]
 known-first-party = ["mut_var"]
@@ -115,11 +119,14 @@ order-by-type = false
 addopts = "-p no:capture"
 testpaths = ["tests"]
 
-[tool.mypy]
-python_version = "3.11"
-files = ["src/mut_var", "tests"]
-check_untyped_defs = true
-warn_unused_ignores = false
-ignore_missing_imports = true
-follow_imports = "skip"
-disable_error_code = ["arg-type", "index", "misc", "syntax", "valid-type", "var-annotated"]
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.src]
+include = ["src", "tests", "scripts"]
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux_* *-win*"
+build-frontend = "uv"
+test-command = "python {project}/scripts/smoke_test.py"

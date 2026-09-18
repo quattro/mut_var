@@ -202,18 +202,20 @@ def test_cli_infer_success_writes_dataframe(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli,
         "run_inference_pipeline",
-        lambda path, **kwargs: captured.setdefault(
-            "call",
-            (path, kwargs["af_col"], kwargs["beta_col"], kwargs["se_col"]),
-        )
-        and pl.DataFrame(
-            {
-                "mu0": [0.0],
-                "var0": [0.1],
-                "maf": [0.001],
-                "name": ["pi0"],
-                "value": [1.0],
-            }
+        lambda path, **kwargs: (
+            captured.setdefault(
+                "call",
+                (path, kwargs["af_col"], kwargs["beta_col"], kwargs["se_col"]),
+            )
+            and pl.DataFrame(
+                {
+                    "mu0": [0.0],
+                    "var0": [0.1],
+                    "maf": [0.001],
+                    "name": ["pi0"],
+                    "value": [1.0],
+                }
+            )
         ),
     )
 

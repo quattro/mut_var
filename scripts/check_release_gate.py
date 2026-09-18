@@ -4,16 +4,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import sys
 
 from pathlib import Path
+from typing import cast, SupportsFloat
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from mut_var.types import RESULTS  # noqa: E402
+from mut_var.types import RESULTS
 
 REQUIRED_FAILURE_STATES = {
     RESULTS.empty_subset.value,
@@ -33,8 +28,8 @@ def evaluate_release_gate_payload(payload: dict[str, object]) -> tuple[bool, lis
     passed = comparison.get("passed")
 
     try:
-        improvement_value = float(improvement)
-        threshold_value = float(threshold)
+        improvement_value = float(cast("str | SupportsFloat", improvement))
+        threshold_value = float(cast("str | SupportsFloat", threshold))
         if not math.isfinite(improvement_value) or not math.isfinite(threshold_value):
             raise ValueError("non-finite comparison metric")
     except (TypeError, ValueError, OverflowError):

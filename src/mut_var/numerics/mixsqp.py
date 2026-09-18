@@ -199,7 +199,7 @@ def solve_qp_ordered(
             # where nu are the Lagrange multipliers for the active linear
             # constraints. The lower block enforces A_WF h_F = 0 (the active
             # linear constraints don't change within this step).
-            A_WF = A[np.ix_(W_ord_list, F_arr)]
+            A_WF = A[np.ix_(np.asarray(W_ord_list, dtype=int), F_arr)]
             H_FF = H[np.ix_(F_arr, F_arr)]
 
             KKT = np.zeros((nF + nO, nF + nO))

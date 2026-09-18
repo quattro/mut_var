@@ -1,0 +1,70 @@
+[project]
+strict = true
+site_name = "mut_var"
+site_description = "Reproducible mutation-variance inference pipelines for CLI and Python callers."
+site_url = "https://quattro.github.io/mut_var/"
+repo_url = "https://github.com/quattro/mut_var"
+repo_name = "quattro/mut_var"
+edit_uri = ""
+docs_dir = "docs/site"
+site_dir = "site"
+extra_css = ["_static/custom_css.css"]
+extra_javascript = ["_static/mathjax.js", "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"]
+nav = [
+    { Home = "index.md" },
+    { Installation = "install.md" },
+    { Quickstart = "quickstart.md" },
+    { CLI = "cli.md" },
+    { "Python API" = "python-api.md" },
+    { Contributing = "contributing.md" },
+]
+
+[project.theme]
+variant = "classic"
+features = ["navigation.sections", "toc.integrate", "header.autohide"]
+favicon = "_static/favicon.png"
+custom_dir = "docs_theme/overrides"
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "white"
+accent = "amber"
+toggle = { icon = "material/weather-night", name = "Switch to dark mode" }
+
+[[project.theme.palette]]
+scheme = "slate"
+primary = "black"
+accent = "amber"
+toggle = { icon = "material/weather-sunny", name = "Switch to light mode" }
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+logo = "material/chart-bell-curve-cumulative"
+
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.pymdownx.arithmatex]
+generic = true
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.superfences]
+[project.markdown_extensions.toc]
+permalink = "¤"
+toc_depth = 4
+
+[project.plugins.search]
+[project.plugins.autorefs]
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+force_inspection = true
+heading_level = 4
+inherited_members = true
+members_order = "source"
+show_bases = false
+show_if_no_docstring = true
+show_overloads = false
+show_root_heading = true
+show_signature_annotations = true
+show_source = false
+show_symbol_type_heading = true
+show_symbol_type_toc = true
